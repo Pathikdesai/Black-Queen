@@ -1,0 +1,9 @@
+{
+  "name": "black-queen",
+  "version": "1.0.0",
+  "description": "Black Queen, an online table for 6 or 7 players",
+  "main": "server.js",
+  "engines": { "node": ">=18" },
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "ws": "^8.18.0" }
+}
