@@ -42,6 +42,35 @@ background:rgba(255,255,255,.03);position:relative;transition:.2s}
 .seat .cnt{position:absolute;top:6px;right:7px;font-size:10px;color:var(--muted)}
 .dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--jade);margin-right:4px;vertical-align:1px}
 .dot.off{background:var(--crimson)}
+@keyframes bannerIn{0%{opacity:0;transform:translateY(14px) scale(.86)}
+ 14%{opacity:1;transform:translateY(0) scale(1.04)}22%{transform:scale(1)}
+ 78%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-12px) scale(.97)}}
+.banner{position:fixed;left:0;right:0;top:31%;z-index:60;display:flex;flex-direction:column;
+ align-items:center;pointer-events:none;animation:bannerIn 1.75s cubic-bezier(.2,.8,.3,1) forwards}
+.banner .bt{font-family:'Bodoni Moda',serif;font-size:34px;letter-spacing:.02em;line-height:1;
+ text-align:center;padding:0 22px;text-shadow:0 3px 20px rgba(0,0,0,.75)}
+.banner .bs{margin-top:7px;font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--bone-dim);
+ text-shadow:0 2px 10px rgba(0,0,0,.8)}
+.banner.q .bt{color:#f2f0e8}.banner.q .bt::after{content:'';display:block;margin:9px auto 0;width:56px;height:2px;background:var(--brass)}
+.banner.cut .bt{color:var(--brass)}
+.banner.pot .bt{color:var(--jade)}
+.banner.prt .bt{color:var(--jade);font-size:27px}
+@keyframes flyIn{from{opacity:0;transform:translateY(26px) scale(.82) rotate(var(--tilt,0deg))}
+ to{opacity:1;transform:none}}
+.played.nw{animation:flyIn .26s cubic-bezier(.22,.9,.3,1) both}
+@keyframes sweep{to{opacity:0;transform:translate(var(--dx,0),-30px) scale(.7)}}
+.trickarea.sweep .played{animation:sweep .34s ease-in forwards}
+@keyframes nope{0%,100%{transform:translateX(0)}22%{transform:translateX(-6px)}46%{transform:translateX(5px)}72%{transform:translateX(-3px)}}
+.card.nope{animation:nope .3s ease}
+.flashbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 96px);
+ z-index:58;background:rgba(15,22,38,.95);border:1px solid var(--line);color:var(--bone);
+ padding:8px 15px;border-radius:999px;font-size:12.5px;pointer-events:none;
+ box-shadow:0 8px 26px rgba(0,0,0,.5);transition:opacity .3s;opacity:1}
+.flashbar.out{opacity:0}
+.sumgrid{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:11px 0 2px;font-size:12.5px}
+.sumgrid .k{color:var(--muted)}
+.sumgrid .v{color:var(--bone);text-align:right}
+.sumgrid .v b{color:var(--brass)}
 .teams{display:flex;flex-direction:column;gap:5px;padding:0 12px 8px}
 .tm{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:10px;font-size:12.5px}
 .tm.bidside{background:rgba(201,153,46,.13);border:1px solid rgba(201,153,46,.38)}
@@ -247,6 +276,47 @@ const SFX={
   broken(){ [523,440,349,262].forEach((f,i)=>blip(f,f,0.26,0.13,'sawtooth',i*0.09)); },
   chat(){ blip(880,880,0.07,0.10,'sine'); }
 };
+let flashT=null;
+function flash(msg){
+  let el=document.getElementById('flashbar');
+  if(!el){ el=document.createElement('div'); el.id='flashbar'; document.body.appendChild(el); }
+  el.className='flashbar'; el.innerHTML=msg;
+  clearTimeout(flashT); flashT=setTimeout(()=>{ if(el)el.className='flashbar out'; },1900);
+}
+function buzz(pat){ try{ if(navigator.vibrate&&!store.get('bq_nohap'))navigator.vibrate(pat); }catch(e){} }
+function banner(cls,title,sub){
+  const d=document.createElement('div'); d.className='banner '+cls;
+  d.innerHTML=`<div class="bt">${title}</div>${sub?`<div class="bs">${sub}</div>`:''}`;
+  document.body.appendChild(d); setTimeout(()=>d.remove(),1800);
+}
+const BANNERS={
+  queen:   ['q',  'Black Queen'],
+  trumpcut:['cut','Trump cut'],
+  bigpot:  ['pot','Big pot'],
+  partner: ['prt','Partner found']
+};
+let cutDeal=null, cutsShown=0;
+function bannerWorthy(e){
+  if(e.n==='queen'||e.n==='partner')return true;
+  if(e.n==='bigpot'){ const m=/\+(\d+)/.exec(e.l||''); return m&&+m[1]>=30; }
+  if(e.n==='trumpcut'){
+    if(cutDeal!==V.dealNo){ cutDeal=V.dealNo; cutsShown=0; }
+    return ++cutsShown<=1;
+  }
+  return false;
+}
+function showMoments(evts){
+  const seen={};
+  evts.forEach(e=>{
+    const b=BANNERS[e.n]; if(!b||seen[e.n])return; seen[e.n]=1;
+    if(bannerWorthy(e))banner(b[0],b[1],e.l||'');
+  });
+  if(seen.queen)buzz([26,40,26]);
+  else if(seen.trumpcut||seen.bigpot)buzz(22);
+  if(seen.partner)buzz([14,60,14]);
+  if(evts.some(e=>e.n==='yourturn'))buzz(16);
+  if(evts.some(e=>e.n==='made'))buzz([18,50,18,50,34]);
+}
 function play(names){
   if(muted||!names||!names.length)return;
   const seen=new Set();
@@ -278,7 +348,9 @@ function connect(then){
       store.set('bq_token',myToken); store.set('bq_code',myCode); }
     else if(m.t==='state'){
       V=m.v; screen=V.phase==='lobby'?'lobby':'game';
-      if(V.fxId&&V.fxId!==lastFx){ lastFx=V.fxId; play(V.fx); }
+      if(V.fxId&&V.fxId!==lastFx){ lastFx=V.fxId;
+        const evts=(V.fx||[]).map(e=>typeof e==='string'?{n:e,l:null}:e);
+        play(evts.map(e=>e.n)); showMoments(evts); }
       const c=V.chat||[];
       if(c.length>seenChat){
         const fresh=c.slice(seenChat);
@@ -444,7 +516,7 @@ function renderGame(R){
   }).join('');
 
   const trick=V.trick.length
-    ? V.trick.map(t=>`<div class="played"><div style="display:flex">${cardEl(t.card)}</div><div class="who">${esc(V.seats[t.p].name)}</div></div>`).join('')
+    ? V.trick.map((t,k)=>`<div class="played ${k===V.trick.length-1?'nw':''}"><div style="display:flex">${cardEl(t.card)}</div><div class="who">${esc(V.seats[t.p].name)}</div></div>`).join('')
     : `<div style="color:var(--muted);font-size:13px;text-align:center;max-width:260px">${idleText()}</div>`;
 
   const lg=V.legalIds;
@@ -474,7 +546,11 @@ function renderGame(R){
   document.getElementById('lv').onclick=leave;
   document.getElementById('ch').onclick=()=>chatOpen?closeChat():openChat();
   document.getElementById('mu').onclick=toggleMute;
-  [...R.querySelectorAll('.hand .card.ok')].forEach(el=>el.onclick=()=>send({t:'play',cardId:+el.dataset.id}));
+  [...R.querySelectorAll('.hand .card.ok')].forEach(el=>el.onclick=()=>{ buzz(11); send({t:'play',cardId:+el.dataset.id}); });
+  [...R.querySelectorAll('.hand .card.no')].forEach(el=>el.onclick=()=>{
+    el.classList.remove('nope'); void el.offsetWidth; el.classList.add('nope'); buzz([9,42,9]);
+    if(V.turn===V.you&&V.lead)flash('Follow '+SYM[V.lead]+' if you can');
+  });
   renderPanel();
 }
 
@@ -577,9 +653,19 @@ function renderPanel(){
   }
   if(V.phase==='dealover'||V.phase==='gameover'){
     const r=V.result;
+    const nmOf=i=>i===V.you?'You':esc(V.seats[i].name);
+    const pAt=(r.partnerAt||[]).filter(x=>x);
+    const rows=[
+      ['Contract', `${esc(V.seats[V.bidder].name)} &middot; <b>${V.bidAmount}</b> &middot; ${SYM[V.trump]}`],
+      ['Bidding side', `<b>${r.tp}</b>`],
+      ['Against', `${r.op}`],
+      r.big?['Biggest trick', `${nmOf(r.big.i)} &middot; <b>+${r.big.pts}</b> on trick ${r.big.no}`]:null,
+      pAt.length?['Partner shown', pAt.length>1?`tricks ${pAt.join(' and ')}`:`trick ${pAt[0]}`]:['Partner shown','never'],
+      r.cuts?['Most trump cuts', `${nmOf(r.cuts.i)} &middot; ${r.cuts.c}`]:null
+    ].filter(Boolean);
     P.innerHTML=`<h3>${r.made?'Contract made':'Contract broken'}</h3>
-      <p>${esc(V.seats[V.bidder].name)} bid ${V.bidAmount} and the team collected ${r.tp}. ${r.isLast?'Final round, so scoring is at actual.':''}
-      <b style="color:var(--brass)">+${r.award}</b> each to ${r.winners.map(i=>esc(V.seats[i].name)).join(', ')}.</p>
+      <div class="sumgrid">${rows.map(x=>`<div class="k">${x[0]}</div><div class="v">${x[1]}</div>`).join('')}</div>
+      <p style="margin-top:11px">${r.isLast?'Final round, so scoring is at actual. ':''}<b style="color:var(--brass)">+${r.award}</b> each to ${r.winners.map(i=>esc(V.seats[i].name)).join(', ')}.</p>
       ${V.phase==='gameover'
         ? `<div class="row">${V.you===0?'<button class="btn wide" id="ag">Play another game</button>':''}<button class="btn quiet wide" id="fin">Final table</button></div>`
         : `<div class="row"><button class="btn wide" id="nx">Next round</button></div><div class="hint" style="margin-top:8px">Deals automatically in a few seconds.</div>`}`;
