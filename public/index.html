@@ -51,6 +51,22 @@ background:rgba(255,255,255,.03);position:relative;transition:.2s}
  text-align:center;padding:0 22px;text-shadow:0 3px 20px rgba(0,0,0,.75)}
 .banner .bs{margin-top:7px;font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--bone-dim);
  text-shadow:0 2px 10px rgba(0,0,0,.8)}
+.contract{position:fixed;inset:0;z-index:62;display:flex;align-items:center;justify-content:center;
+ background:rgba(9,14,24,.62);backdrop-filter:blur(3px);pointer-events:none;
+ animation:cIn .28s ease both, cOut .4s ease 2.7s both}
+@keyframes cIn{from{opacity:0}to{opacity:1}}
+@keyframes cOut{to{opacity:0}}
+.contract .box{background:linear-gradient(165deg,#1F2C46,#141E33);border:1px solid var(--brass);
+ border-radius:18px;padding:22px 26px 20px;text-align:center;min-width:236px;
+ box-shadow:0 22px 60px rgba(0,0,0,.6);animation:cPop .42s cubic-bezier(.2,1.3,.4,1) both}
+@keyframes cPop{from{transform:scale(.8) translateY(16px)}to{transform:none}}
+.contract .lab{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.contract .suit{font-family:'Bodoni Moda',serif;font-size:76px;line-height:1.02;margin:2px 0 0}
+.contract .sname{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--bone-dim);margin-bottom:13px}
+.contract .who{font-size:14px;color:var(--bone);margin-bottom:3px}
+.contract .who b{color:var(--brass);font-family:'Bodoni Moda',serif;font-size:19px}
+.contract .calls{margin-top:11px;padding-top:11px;border-top:1px solid rgba(201,153,46,.28)}
+.contract .calls .cc{font-family:'Bodoni Moda',serif;font-size:21px;margin:0 5px}
 .banner.q .bt{color:#f2f0e8}.banner.q .bt::after{content:'';display:block;margin:9px auto 0;width:56px;height:2px;background:var(--brass)}
 .banner.cut .bt{color:var(--brass)}
 .banner.pot .bt{color:var(--jade)}
@@ -289,6 +305,21 @@ function banner(cls,title,sub){
   d.innerHTML=`<div class="bt">${title}</div>${sub?`<div class="bs">${sub}</div>`:''}`;
   document.body.appendChild(d); setTimeout(()=>d.remove(),1800);
 }
+const SUITCOL={S:'#EFE7D6',H:'#D9484E',D:'#4C86D8',C:'#3E9B6E'};
+const SUITNAME={S:'Spades',H:'Hearts',D:'Diamonds',C:'Clubs'};
+function contractCard(d){
+  const col=SUITCOL[d.t]||'#EFE7D6';
+  const cc=d.c.map(c=>`<span class="cc" style="color:${SUITCOL[c.s]}">${c.r}${SYM[c.s]}</span>`).join('<span style="color:var(--muted);font-size:12px"> and </span>');
+  const el=document.createElement('div'); el.className='contract';
+  el.innerHTML=`<div class="box">
+    <div class="lab">Trump</div>
+    <div class="suit" style="color:${col}">${SYM[d.t]}</div>
+    <div class="sname">${SUITNAME[d.t]}</div>
+    <div class="who">${d.b} takes the contract at <b>${d.a}</b></div>
+    <div class="calls"><div class="lab" style="margin-bottom:5px">Calling</div>${cc}</div>
+  </div>`;
+  document.body.appendChild(el); setTimeout(()=>el.remove(),3200);
+}
 const BANNERS={
   queen:   ['q',  'Black Queen'],
   trumpcut:['cut','Trump cut'],
@@ -307,6 +338,8 @@ function bannerWorthy(e){
 }
 function showMoments(evts){
   const seen={};
+  const dec=evts.find(e=>e.n==='declared');
+  if(dec&&dec.l){ try{ contractCard(JSON.parse(dec.l)); buzz([16,70,16,70,30]); }catch(err){} }
   evts.forEach(e=>{
     const b=BANNERS[e.n]; if(!b||seen[e.n])return; seen[e.n]=1;
     if(bannerWorthy(e))banner(b[0],b[1],e.l||'');
@@ -496,7 +529,7 @@ function renderLobby(R){
 function renderGame(R){
   const me=V.you, team=new Set(V.team);
   let info='';
-  if(V.trump)info+=`<span class="trumpbadge">${SYM[V.trump]} trump</span>`;
+  if(V.trump)info+=`<span class="trumpbadge" style="color:${SUITCOL[V.trump]};border-color:${SUITCOL[V.trump]}66"><b style="font-size:15px">${SYM[V.trump]}</b> trump</span>`;
   if(V.bidAmount)info+=`<span>bid ${V.bidAmount}</span>`;
   if(V.phase==='play'||V.phase==='resolve')info+=`<span>trick ${V.trickNo}/${V.handSize}</span>`;
 
@@ -516,7 +549,7 @@ function renderGame(R){
   }).join('');
 
   const trick=V.trick.length
-    ? V.trick.map((t,k)=>`<div class="played ${k===V.trick.length-1?'nw':''}"><div style="display:flex">${cardEl(t.card)}</div><div class="who">${esc(V.seats[t.p].name)}</div></div>`).join('')
+    ? V.trick.map((t,k)=>`<div class="played ${k===V.trick.length-1?'nw':''}"><div style="display:flex">${cardEl(t.card,V.trump&&t.card.s===V.trump?'tr':'')}</div><div class="who">${esc(V.seats[t.p].name)}</div></div>`).join('')
     : `<div style="color:var(--muted);font-size:13px;text-align:center;max-width:260px">${idleText()}</div>`;
 
   const lg=V.legalIds;
