@@ -334,17 +334,23 @@ function renderPanel(){
       <p>Call any two cards in the deck. The first player to lay each one joins you.</p>
       <div style="margin-bottom:8px">${SUITS.map(s=>`<div class="callsuit">
         <div class="sl su-${s}">${SYM[s]}</div>
-        <div class="callscroll">${ORD.map(r=>{const k=r+s,on=uiCalls.some(x=>x.r+x.s===k);
-          return `<button class="callchip mini su-${s} ${on?'on':''}" data-c="${k}">${r}${have.has(k)?'<sup style="color:var(--brass)">&bull;</sup>':''}</button>`;
+        <div class="callscroll">${ORD.map(r=>{const k=r+s,n=uiCalls.filter(x=>x.r+x.s===k).length;
+          return `<button class="callchip mini su-${s} ${n?'on':''}" data-c="${k}">${r}${n===2?'<sup style="color:var(--brass)">&times;2</sup>':(have.has(k)?'<sup style="color:var(--brass)">&bull;</sup>':'')}</button>`;
         }).join('')}</div></div>`).join('')}</div>
-      <div class="hint">Swipe each row for the lower cards. A dot marks one you already hold; call it anyway and whoever has the second copy is your partner. Note the 4s have only one copy each in the deck.</div>
-      <div class="row" style="margin-bottom:8px">${uiCalls.length?uiCalls.map(c=>`<span class="callchip su-${c.s} on">${c.r}${SYM[c.s]}</span>`).join(''):'<span class="hint" style="margin:0">No cards called yet</span>'}</div>
+      <div class="hint">Swipe each row for the lower cards. Tap the same card twice to call both copies and bring in two partners that way. A dot marks a card you already hold; call it anyway and whoever has the other copy is your partner. The 4s exist only once in the deck.</div>
+      <div class="row" style="margin-bottom:8px;align-items:center">${uiCalls.length?uiCalls.map((c,i)=>`<button class="callchip su-${c.s} on" data-rm="${i}">${c.r}${SYM[c.s]} &times;</button>`).join(''):'<span class="hint" style="margin:0">No cards called yet. Tap two below.</span>'}</div>
       <button class="btn wide" id="dk" ${uiTrump&&uiCalls.length===2?'':'disabled'}>Set trump and lead</button>`;
     [...P.querySelectorAll('.suitbtn')].forEach(el=>el.onclick=()=>{uiTrump=el.dataset.s;renderPanel();});
     [...P.querySelectorAll('.callchip.mini')].forEach(el=>el.onclick=()=>{
-      const k=el.dataset.c,i=uiCalls.findIndex(x=>x.r+x.s===k);
-      if(i>=0)uiCalls.splice(i,1); else if(uiCalls.length<2)uiCalls.push({r:k.slice(0,-1),s:k.slice(-1)});
+      const k=el.dataset.c;
+      if(uiCalls.length<2){
+        if(k[0]==='4'&&uiCalls.some(x=>x.r+x.s===k))return toast('Only one 4 of each suit exists, so it cannot be called twice.');
+        uiCalls.push({r:k.slice(0,-1),s:k.slice(-1)});
+      } else toast('Two cards already called. Tap one above to remove it.');
       renderPanel();
+    });
+    [...P.querySelectorAll('[data-rm]')].forEach(el=>el.onclick=()=>{
+      uiCalls.splice(+el.dataset.rm,1); renderPanel();
     });
     if(document.getElementById('dk'))document.getElementById('dk').onclick=()=>{
       const t=uiTrump,c=uiCalls.slice(); uiTrump=null; uiCalls=[];
