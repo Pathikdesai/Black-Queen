@@ -22,9 +22,15 @@ function buildDeck() {
   return d; // 84
 }
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0;[a[i], a[j]] = [a[j], a[i]]; } return a; }
+const SUIT_ORDER = ['S', 'H', 'C', 'D']; // black, red, green, blue: never two alike side by side
+function suitOrder(trump) {
+  if (!trump) return SUIT_ORDER;
+  const i = SUIT_ORDER.indexOf(trump);
+  return SUIT_ORDER.slice(i).concat(SUIT_ORDER.slice(0, i));
+}
 function sortHand(h, trump) {
-  const k = s => (s === trump ? 0 : 1) * 10 + SUITS.indexOf(s);
-  return h.sort((a, b) => k(a.s) - k(b.s) || RV[b.r] - RV[a.r]);
+  const ord = suitOrder(trump);
+  return h.sort((a, b) => ord.indexOf(a.s) - ord.indexOf(b.s) || RV[b.r] - RV[a.r]);
 }
 function beats(a, b, trump, lead) {
   const at = a.s === trump, bt = b.s === trump;
@@ -136,7 +142,6 @@ function doDeclare(R, idx, trump, calls) {
   if (!SUITS.includes(trump) || !Array.isArray(calls) || calls.length !== 2) return;
   for (const c of calls) {
     if (!RANKS.includes(c.r) || !SUITS.includes(c.s)) return;
-    if (c.r === '4') return;
   }
   if (calls[0].r === calls[1].r && calls[0].s === calls[1].s) return;
   R.trump = trump; R.called = [{ r: calls[0].r, s: calls[0].s }, { r: calls[1].r, s: calls[1].s }];
@@ -172,7 +177,7 @@ function doPlay(R, idx, cardId) {
         say(R, `${p.name} lays the called ${cc.r}${cc.s}. Whoever holds the other copy is now a partner.`);
       } else {
         R.calledDone[k] = true;
-        say(R, `Both ${cc.r}${cc.s} sit with the bidding side, so that call is dead.`);
+        say(R, `No ${cc.r}${cc.s} left outside the bidding side, so that call is dead.`);
       }
     }
     break;
@@ -296,8 +301,8 @@ function botPlay(R, i) {
 
 /* ========================= TURN DRIVER ========================= */
 const AWAY_MS = +(process.env.AWAY_MS || 30000);
-const BOT_MS = +(process.env.BOT_MS || 750);
-const TRICK_MS = +(process.env.TRICK_MS || 1500);
+const BOT_MS = +(process.env.BOT_MS || 900);
+const TRICK_MS = +(process.env.TRICK_MS || 2600);
 const NEXT_MS = +(process.env.NEXT_MS || 7000);
 function arm(R, fn, ms) { clearTimeout(R.timer); R.timer = setTimeout(() => { try { fn(); } catch (e) { console.error(e); } }, ms); }
 
