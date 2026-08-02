@@ -42,6 +42,18 @@ background:rgba(255,255,255,.03);position:relative;transition:.2s}
 .seat .cnt{position:absolute;top:6px;right:7px;font-size:10px;color:var(--muted)}
 .dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--jade);margin-right:4px;vertical-align:1px}
 .dot.off{background:var(--crimson)}
+.teams{display:flex;flex-direction:column;gap:5px;padding:0 12px 8px}
+.tm{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:10px;font-size:12.5px}
+.tm.bidside{background:rgba(201,153,46,.13);border:1px solid rgba(201,153,46,.38)}
+.tm.oppside{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09)}
+.tm .lb{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);flex:0 0 auto;width:62px;line-height:1.25}
+.tm.bidside .lb{color:var(--brass)}
+.tm .nms{flex:1;color:var(--bone);line-height:1.3}
+.tm .nms .u{color:var(--jade);font-weight:600}
+.tm .pt{font-family:'Bodoni Moda',serif;font-size:19px;flex:0 0 auto;min-width:30px;text-align:right}
+.tm.bidside .pt{color:var(--brass)}
+.tm.oppside .pt{color:var(--bone-dim)}
+.seat.tside{background:rgba(201,153,46,.11);border-color:rgba(201,153,46,.4)}
 .table{flex:1;display:flex;align-items:center;justify-content:center;padding:6px 12px 12px;min-height:190px}
 .trickarea{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-items:flex-end;min-height:104px}
 .played{text-align:center;animation:drop .22s ease-out}
@@ -132,6 +144,31 @@ padding:14px;border:1px dashed var(--line);border-radius:12px;margin-bottom:12px
 .lobrow{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-radius:9px;
 background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);font-size:14px}
 .lobrow .em{font-size:11px;color:var(--muted)}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:70;background:var(--felt2);
+border-top:1px solid var(--line);border-radius:16px 16px 0 0;max-height:74vh;display:flex;flex-direction:column;
+box-shadow:0 -8px 26px rgba(0,0,0,.5);transform:translateY(100%);transition:transform .24s ease}
+.sheet.open{transform:none}
+.sheet .sh{display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+.sheet .sh h3{margin:0;font-size:17px;color:var(--brass)}
+.msgs{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:9px;min-height:130px}
+.msg{max-width:82%;padding:8px 11px;border-radius:11px;background:rgba(255,255,255,.06);font-size:14px;line-height:1.35}
+.msg .who{font-size:10.5px;color:var(--brass);letter-spacing:.05em;margin-bottom:2px}
+.msg.mine{align-self:flex-end;background:rgba(201,153,46,.18);border:1px solid rgba(201,153,46,.3)}
+.msg.mine .who{color:var(--bone-dim)}
+.quick{display:flex;gap:6px;overflow-x:auto;padding:9px 14px 0;scrollbar-width:none}
+.quick::-webkit-scrollbar{display:none}
+.qb{flex:0 0 auto;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.04);color:var(--bone-dim);
+border-radius:999px;padding:6px 12px;font-family:inherit;font-size:13px;cursor:pointer}
+.qb:active{border-color:var(--brass);color:var(--brass)}
+.compose{display:flex;gap:7px;padding:10px 14px calc(12px + env(safe-area-inset-bottom))}
+.compose input{flex:1;padding:11px 13px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
+background:rgba(255,255,255,.05);color:var(--bone);font-family:inherit;font-size:16px}
+.compose input:focus{outline:none;border-color:var(--brass)}
+.badge{position:absolute;top:-5px;right:-5px;background:var(--crimson);color:#fff;border-radius:999px;
+min-width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;padding:0 3px;font-weight:700}
+.iconbtn.rel{position:relative}
+.toast.chat{background:var(--felt2);border:1px solid var(--line);color:var(--bone);max-width:82%}
+.toast.chat b{color:var(--brass)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:var(--crimson);color:#fff;
 padding:10px 16px;border-radius:10px;font-size:13px;z-index:90;box-shadow:0 6px 18px rgba(0,0,0,.5)}
 .scoreline{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.07);font-size:14px}
@@ -157,6 +194,77 @@ const store={
   del(k){try{localStorage.removeItem(k)}catch(e){}}
 };
 
+/* ---------- sound, synthesised in the browser ---------- */
+let AC=null, muted=store.get('bq_mute')==='1', lastFx=0;
+function ac(){
+  try{
+    if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();
+    if(AC.state==='suspended')AC.resume();
+    return AC;
+  }catch(e){return null}
+}
+document.addEventListener('pointerdown',()=>{if(!muted)ac();},{passive:true});
+function env(g,t,a,d,peak){
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(peak,t+a);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+a+d);
+}
+function blip(f1,f2,dur,peak,type,at){
+  const C=ac(); if(!C)return;
+  const t=C.currentTime+(at||0);
+  const o=C.createOscillator(), g=C.createGain();
+  o.type=type||'triangle';
+  o.frequency.setValueAtTime(f1,t);
+  if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+dur);
+  env(g,t,0.008,dur,peak);
+  o.connect(g); g.connect(C.destination);
+  o.start(t); o.stop(t+dur+0.06);
+}
+function noise(dur,peak,f0,f1,at){
+  const C=ac(); if(!C)return;
+  const t=C.currentTime+(at||0);
+  const n=Math.floor(C.sampleRate*dur);
+  const buf=C.createBuffer(1,n,C.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*(1-i/n);
+  const src=C.createBufferSource(); src.buffer=buf;
+  const bp=C.createBiquadFilter(); bp.type='bandpass'; bp.Q=1.1;
+  bp.frequency.setValueAtTime(f0,t);
+  bp.frequency.exponentialRampToValueAtTime(f1||f0,t+dur);
+  const g=C.createGain(); env(g,t,0.006,dur,peak);
+  src.connect(bp); bp.connect(g); g.connect(C.destination);
+  src.start(t); src.stop(t+dur+0.05);
+}
+const SFX={
+  card(){ noise(0.06,0.10,1700,900); },
+  trumpcut(){ noise(0.20,0.30,5200,700); blip(520,120,0.24,0.22,'sawtooth',0.02); },
+  queen(){ blip(196,196,0.30,0.20,'sine'); blip(147,147,0.42,0.17,'sine',0.10); },
+  trickwin(){ blip(587,587,0.12,0.17,'triangle'); blip(880,880,0.20,0.15,'triangle',0.10); },
+  bigpot(){ [523,659,784,1047].forEach((f,i)=>blip(f,f,0.14,0.13,'triangle',i*0.06)); },
+  partner(){ blip(1047,1047,0.30,0.13,'sine'); blip(1568,1568,0.34,0.09,'sine',0.07); },
+  contract(){ [392,494,587].forEach((f,i)=>blip(f,f,0.34,0.12,'triangle',i*0.05)); },
+  yourturn(){ blip(784,784,0.10,0.14,'sine'); blip(1047,1047,0.14,0.12,'sine',0.09); },
+  made(){ [523,659,784,1047].forEach((f,i)=>blip(f,f,0.24,0.14,'triangle',i*0.09)); },
+  broken(){ [523,440,349,262].forEach((f,i)=>blip(f,f,0.26,0.13,'sawtooth',i*0.09)); },
+  chat(){ blip(880,880,0.07,0.10,'sine'); }
+};
+function play(names){
+  if(muted||!names||!names.length)return;
+  const seen=new Set();
+  let n=0;
+  for(const k of names){
+    if(seen.has(k))continue; seen.add(k);
+    if(SFX[k]&&n<3){ try{SFX[k]();}catch(e){} n++; }
+  }
+}
+function toggleMute(){
+  muted=!muted; store.set('bq_mute',muted?'1':'0');
+  if(!muted){ac();SFX.yourturn();}
+  render(); updateChat();
+}
+
+/* ---------- chat ---------- */
+let chatOpen=false, seenChat=0, unread=0, sheetEl=null;
+
 let ws=null, V=null, seat=null, myToken=store.get('bq_token'), myCode=store.get('bq_code');
 let uiBid=MINBID, uiTrump=null, uiCalls=[], screen='home', pending=null;
 
@@ -168,7 +276,22 @@ function connect(then){
     const m=JSON.parse(e.data);
     if(m.t==='seated'){ seat=m.seat; myToken=m.token; myCode=m.code;
       store.set('bq_token',myToken); store.set('bq_code',myCode); }
-    else if(m.t==='state'){ V=m.v; screen=V.phase==='lobby'?'lobby':'game'; render(); }
+    else if(m.t==='state'){
+      V=m.v; screen=V.phase==='lobby'?'lobby':'game';
+      if(V.fxId&&V.fxId!==lastFx){ lastFx=V.fxId; play(V.fx); }
+      const c=V.chat||[];
+      if(c.length>seenChat){
+        const fresh=c.slice(seenChat);
+        seenChat=c.length;
+        const inbound=fresh.filter(x=>x.i!==V.you);
+        if(inbound.length&&!chatOpen){
+          unread+=inbound.length;
+          const last=inbound[inbound.length-1];
+          chatToast(last.name,last.text);
+        }
+      }
+      render(); updateChat();
+    }
     else if(m.t==='err'){ toast(m.msg); if(screen==='home')render(); }
   };
   ws.onclose=()=>{ setTimeout(()=>{ if(myCode)connect(()=>send({t:'join',code:myCode,token:myToken})); },1500); };
@@ -177,6 +300,58 @@ function send(o){ if(ws&&ws.readyState===1)ws.send(JSON.stringify(o)); }
 function toast(msg){
   const d=document.createElement('div'); d.className='toast'; d.textContent=msg;
   document.body.appendChild(d); setTimeout(()=>d.remove(),3200);
+}
+function chatToast(who,text){
+  const d=document.createElement('div'); d.className='toast chat';
+  d.innerHTML=`<b>${esc(who)}</b> ${esc(text)}`;
+  d.onclick=()=>{d.remove();openChat();};
+  document.body.appendChild(d); setTimeout(()=>d.remove(),4200);
+}
+
+/* ---------- chat sheet, lives outside the re-rendered root ---------- */
+const QUICK=['Nice one','Well played','Oops','Your turn','One minute','Good bid','Bad luck','Aaya aaya'];
+function buildSheet(){
+  if(sheetEl)return sheetEl;
+  sheetEl=document.createElement('div');
+  sheetEl.className='sheet';
+  sheetEl.innerHTML=`<div class="sh"><h3>Table talk</h3><span class="spacer" style="flex:1"></span>
+      <button class="iconbtn" id="chatClose">Close</button></div>
+    <div class="msgs" id="msgs"></div>
+    <div class="quick" id="quick"></div>
+    <div class="compose"><input id="chatIn" maxlength="180" placeholder="Say something" autocomplete="off">
+      <button class="btn" id="chatSend">Send</button></div>`;
+  document.body.appendChild(sheetEl);
+  sheetEl.querySelector('#chatClose').onclick=closeChat;
+  const inp=sheetEl.querySelector('#chatIn');
+  const fire=()=>{
+    const t=inp.value.trim();
+    if(!t)return;
+    send({t:'chat',text:t}); inp.value='';
+  };
+  sheetEl.querySelector('#chatSend').onclick=fire;
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')fire();});
+  sheetEl.querySelector('#quick').innerHTML=QUICK.map(q=>`<button class="qb">${q}</button>`).join('');
+  [...sheetEl.querySelectorAll('.qb')].forEach(b=>b.onclick=()=>send({t:'chat',text:b.textContent}));
+  return sheetEl;
+}
+function openChat(){
+  buildSheet().classList.add('open');
+  chatOpen=true; unread=0;
+  updateChat(); render();
+  setTimeout(()=>{const m=sheetEl.querySelector('#msgs'); if(m)m.scrollTop=m.scrollHeight;},60);
+}
+function closeChat(){
+  if(sheetEl)sheetEl.classList.remove('open');
+  chatOpen=false; render();
+}
+function updateChat(){
+  if(!sheetEl||!V)return;
+  const box=sheetEl.querySelector('#msgs');
+  const c=V.chat||[];
+  box.innerHTML=c.length
+    ? c.map(m=>`<div class="msg ${m.i===V.you?'mine':''}"><div class="who">${esc(m.name)}</div>${esc(m.text)}</div>`).join('')
+    : `<div style="color:var(--muted);font-size:13px;text-align:center;padding:18px 0">Nothing said yet. Tap a phrase below or type.</div>`;
+  if(chatOpen)box.scrollTop=box.scrollHeight;
 }
 const esc=s=>String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
 
@@ -219,6 +394,8 @@ function renderHome(R){
 function renderLobby(R){
   const full=V.seats.length>=V.size;
   R.innerHTML=`<div class="ribbon"><span class="deal">Table</span><span class="spacer"></span>
+    <button class="iconbtn rel" id="ch">&#128172;${unread?`<span class="badge">${unread>9?'9+':unread}</span>`:''}</button>
+    <button class="iconbtn" id="mu">${muted?'&#128263;':'&#128266;'}</button>
     <button class="iconbtn" id="rl">Rules</button><button class="iconbtn" id="lv">Leave</button></div>
     <div class="home" style="justify-content:flex-start;padding-top:20px">
       <div class="codebox">${V.code}</div>
@@ -238,6 +415,8 @@ function renderLobby(R){
     </div>`;
   document.getElementById('rl').onclick=showRules;
   document.getElementById('lv').onclick=leave;
+  document.getElementById('ch').onclick=()=>chatOpen?closeChat():openChat();
+  document.getElementById('mu').onclick=toggleMute;
   [...R.querySelectorAll('[data-sz]')].forEach(b=>b.onclick=()=>send({t:'size',size:+b.dataset.sz}));
   if(document.getElementById('go'))document.getElementById('go').onclick=()=>send({t:'start'});
 }
@@ -256,7 +435,8 @@ function renderGame(R){
     if(V.bidder===i)tag='<div class="tag bid">bidder</div>';
     else if(team.has(i))tag='<div class="tag mate">partner</div>';
     else if(i===me&&V.secretMate)tag='<div class="tag mate">partner (hidden)</div>';
-    return `<div class="seat ${turn?'turn':''} ${i===me?'you':''} ${passed?'out':''}">
+    const onTeam=team.has(i)||(i===me&&V.secretMate);
+    return `<div class="seat ${turn?'turn':''} ${i===me?'you':''} ${passed?'out':''} ${V.trump&&onTeam?'tside':''}">
       <div class="cnt">${V.phase==='bid'?'':s.cards}</div>
       <div class="nm">${s.connected?'':'<span class="dot off"></span>'}${esc(s.name)}</div>
       <div class="sc">${s.score}</div>${tag}
@@ -279,8 +459,11 @@ function renderGame(R){
 
   R.innerHTML=`<div class="ribbon"><span class="deal">${V.phase==='gameover'?'Final':'Round '+V.dealNo+'/'+V.totalDeals}</span>
     <span class="spacer"></span><span class="chipline">${info}</span>
-    <button class="iconbtn" id="rl">Rules</button><button class="iconbtn" id="lv">Exit</button></div>
+    <button class="iconbtn rel" id="ch">&#128172;${unread?`<span class="badge">${unread>9?'9+':unread}</span>`:''}</button>
+    <button class="iconbtn" id="mu">${muted?'&#128263;':'&#128266;'}</button>
+    <button class="iconbtn" id="rl">?</button><button class="iconbtn" id="lv">Exit</button></div>
     <div class="seats">${seats}</div>
+    ${teamsBar()}
     <div class="table"><div class="trickarea">${trick}</div></div>
     <div class="handwrap"><div class="handlabel"><span>Your hand</span>
       <span>${V.hand.length?V.hand.reduce((a,c)=>a+ptsOf(c),0)+' pts in hand':''}</span></div>
@@ -289,10 +472,29 @@ function renderGame(R){
     <div class="log">${V.log.map(l=>`<div>${l}</div>`).join('')}</div>`;
   document.getElementById('rl').onclick=showRules;
   document.getElementById('lv').onclick=leave;
+  document.getElementById('ch').onclick=()=>chatOpen?closeChat():openChat();
+  document.getElementById('mu').onclick=toggleMute;
   [...R.querySelectorAll('.hand .card.ok')].forEach(el=>el.onclick=()=>send({t:'play',cardId:+el.dataset.id}));
   renderPanel();
 }
 
+function teamsBar(){
+  if(!V.trump)return '';
+  const team=new Set(V.team);
+  const settled=V.calledDone[0]&&V.calledDone[1];
+  const side=[],rest=[];
+  V.seats.forEach((s,i)=>(team.has(i)?side:rest).push(i));
+  const pts=list=>list.reduce((a,i)=>a+(V.seats[i].won||0),0);
+  const nm=list=>list.length
+    ? list.map(i=>i===V.you?`<span class="u">you</span>`:esc(V.seats[i].name)).join(' &middot; ')
+    : '<span style="color:var(--muted)">nobody yet</span>';
+  const restLbl=settled?'Against':'Not yet shown';
+  const you=V.secretMate&&!team.has(V.you)?`<div class="hint" style="padding:0 12px 6px;margin:0">You hold a called card, so you are on the bidding side. Nobody else knows yet.</div>`:'';
+  return `<div class="teams">
+    <div class="tm bidside"><div class="lb">Bidding side</div><div class="nms">${nm(side)}</div><div class="pt">${pts(side)}</div></div>
+    <div class="tm oppside"><div class="lb">${restLbl}</div><div class="nms">${nm(rest)}</div><div class="pt">${pts(rest)}</div></div>
+  </div>${you}`;
+}
 function idleText(){
   if(V.phase==='declare')return 'The bidder is choosing trump and calling partners.';
   if(V.lastTrick)return `${esc(V.seats[V.lastTrick.winner].name)} took the last trick${V.lastTrick.pts?' for '+V.lastTrick.pts:''}.`;
@@ -307,8 +509,16 @@ function renderPanel(){
       P.innerHTML=`<h3>Bidding</h3><p>${b.high?`High bid <b style="color:var(--brass)">${b.high}</b> by ${esc(V.seats[b.highBidder].name)}.`:'Waiting for the opening bid.'} ${esc(V.seats[b.turn].name)} to act.</p>`;
       return;
     }
+    const canRaise=b.min<=MAXBID;
     if(uiBid<b.min)uiBid=b.min;
     if(uiBid>MAXBID)uiBid=MAXBID;
+    if(!canRaise){
+      P.innerHTML=`<h3>Your bid</h3>
+        <p>The bidding has reached the ceiling of 200, so there is nothing left to raise. ${esc(V.seats[b.highBidder].name)} holds it.</p>
+        <div class="row"><button class="btn wide" id="bp">Pass</button></div>`;
+      document.getElementById('bp').onclick=()=>{uiBid=MINBID;send({t:'pass'});};
+      return;
+    }
     P.innerHTML=`<h3>Your bid</h3>
       <p>${b.opened?`High bid <b style="color:var(--brass)">${b.high}</b> by ${esc(V.seats[b.highBidder].name)}.`:'You sit left of the dealer, so you must open at 100 or higher.'} Your hand holds ${V.hand.reduce((a,c)=>a+ptsOf(c),0)} points.</p>
       <div class="stepper"><button class="step" id="bd">&minus;</button><div class="amt">${uiBid}</div><button class="step" id="bu">+</button></div>
@@ -398,6 +608,7 @@ function showFinal(){
 function leave(){
   store.del('bq_token'); store.del('bq_code');
   myToken=null; myCode=null; V=null; screen='home';
+  closeChat(); seenChat=0; unread=0;
   if(ws){ws.onclose=null;ws.close();ws=null;}
   render();
 }
@@ -406,7 +617,7 @@ function showRules(){
 <p><b>The deck.</b> Two packs with all 2s and 3s pulled out, and the 4s from one pack only. 84 cards, so 14 each for six players or 12 each for seven.</p>
 <p><b>The 200 points.</b> Every 5 and every 10 is worth 5. Every ace is 10. Each queen of spades is 20. Two of each card, so the pool is exactly 200.</p>
 <p><b>Bidding.</b> The player left of the dealer must open at 100 or more. Raises go up in fives to a ceiling of 200. Once you pass you are out. Last one standing takes the contract.</p>
-<p><b>The contract.</b> The bidder names trump and calls two cards. The first player to lay each called card joins the bidder's team, so three against three at six-handed and three against four at seven-handed. The bidder may call a card he holds a copy of. If he lays that copy himself, whoever holds the second copy is the partner.</p>
+<p><b>The contract.</b> The bidder names trump and calls two cards. The first player to lay each called card joins the bidder's team, so three against three at six-handed and three against four at seven-handed. The bidder may call a card he holds a copy of. If he lays that copy himself, whoever holds the second copy is the partner. If one player happens to lay both called cards, he is the sole partner and the bidder plays two against the rest.</p>
 <p><b>Play.</b> Follow the led suit if you can, otherwise play anything including trump. Highest trump takes the trick, or the highest card of the led suit if no trump appears. Identical cards tie in favour of whoever played first. The bidder leads the opening trick.</p>
 <p><b>Scoring.</b> Make the bid and every player on the bidding team adds what the team actually collected, so bidding 120 and taking 175 pays 175. Fall short and every opponent adds the bid instead. In the final round only, a failed contract pays the opponents what they actually collected.</p>
 <p><b>Length.</b> Nine rounds at six-handed, ten at seven-handed. Highest personal total wins.</p>`);
