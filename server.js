@@ -143,7 +143,9 @@ function doDeclare(R, idx, trump, calls) {
   for (const c of calls) {
     if (!RANKS.includes(c.r) || !SUITS.includes(c.s)) return;
   }
-  if (calls[0].r === calls[1].r && calls[0].s === calls[1].s) return;
+  // the same card may be called twice, meaning both copies bring in a partner.
+  // 4s exist only once in the deck, so a doubled 4 is impossible.
+  if (calls[0].r === calls[1].r && calls[0].s === calls[1].s && calls[0].r === '4') return;
   R.trump = trump; R.called = [{ r: calls[0].r, s: calls[0].s }, { r: calls[1].r, s: calls[1].s }];
   R.phase = 'play'; R.leader = R.bidder; R.trickNo = 1; R.trick = []; R.lead = null;
   say(R, `Trump is <span class="hi">${trump}</span>. Called: <span class="hi">${R.called[0].r}${R.called[0].s}</span> and <span class="hi">${R.called[1].r}${R.called[1].s}</span>.`);
