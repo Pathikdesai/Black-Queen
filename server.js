@@ -68,7 +68,8 @@ function createRoom(size) {
   rooms.set(code, R);
   return R;
 }
-function fx(R, name, to) { R.fxq.push({ name, to: (to === undefined ? null : to) }); }
+function esc2(x) { return String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fx(R, name, to, label) { R.fxq.push({ name, to: (to === undefined ? null : to), label: label || null }); }
 function notifyTurn(R) {
   let k = null;
   if (R.phase === 'play') k = 'p' + turnPlayer(R);
@@ -106,6 +107,7 @@ function startDeal(R) {
   R.trump = null; R.called = [null, null]; R.calledDone = [false, false];
   R.bidder = null; R.bidAmount = null; R.team = new Set(); R.privateTeam = new Set();
   R.trick = []; R.lead = null; R.leader = null; R.trickNo = 0; R.lastTrick = null; R.result = null;
+  R.bigTrick = null; R.partnerAt = [null, null]; R.cuts = {};
   R.bidState = { turn: (R.dealer + 1) % R.n, high: null, highBidder: null, passed: new Set(), opened: false };
   R.phase = 'bid';
   say(R, `<b>Round ${R.dealNo} of ${R.totalDeals}</b> dealt by ${R.players[R.dealer].name}. ${R.players[R.bidState.turn].name} opens.`);
@@ -180,8 +182,11 @@ function doPlay(R, idx, cardId) {
   R.trick.push({ p: idx, card });
 
   fx(R, 'card');
-  if (card.r === 'Q' && card.s === 'S') fx(R, 'queen');
-  if (card.s === R.trump && R.lead !== R.trump) fx(R, 'trumpcut');
+  if (card.r === 'Q' && card.s === 'S') fx(R, 'queen', null, 'Black Queen &middot; 20');
+  if (card.s === R.trump && R.lead !== R.trump && R.lead !== null) {
+    R.cuts[idx] = (R.cuts[idx] || 0) + 1;
+    fx(R, 'trumpcut', null, esc2(p.name) + ' cuts');
+  }
 
   for (let k = 0; k < 2; k++) {
     if (R.calledDone[k]) continue;
@@ -199,13 +204,15 @@ function doPlay(R, idx, cardId) {
       }
     } else if (!R.team.has(idx)) {
       R.calledDone[k] = true; R.team.add(idx); R.privateTeam.add(idx);
+      R.partnerAt[k] = R.trickNo;
       say(R, `<span class="jd">${p.name} lays ${cc.r}${cc.s} and joins ${R.players[R.bidder].name}.</span>`);
-      fx(R, 'partner');
+      fx(R, 'partner', null, esc2(p.name) + ' joins ' + esc2(R.players[R.bidder].name));
     } else {
       // already a partner, and now holds a second called card: the call is spent, no third player joins
       R.calledDone[k] = true;
+      R.partnerAt[k] = R.trickNo;
       say(R, `<span class="jd">${p.name} lays ${cc.r}${cc.s} as well, so ${R.players[R.bidder].name} plays with one partner only.</span>`);
-      fx(R, 'partner');
+      fx(R, 'partner', null, esc2(p.name) + ' partners alone');
     }
     break;
   }
@@ -226,8 +233,9 @@ function resolveTrick(R) {
   R.players[w].won += pts;
   R.lastTrick = { winner: w, pts };
   if (pts > 0) say(R, `${R.players[w].name} takes trick ${R.trickNo} <span class="hi">(+${pts})</span>.`);
+  if (!R.bigTrick || pts > R.bigTrick.pts) R.bigTrick = { i: w, pts, no: R.trickNo };
   fx(R, 'trickwin', w);
-  if (pts >= 20) fx(R, 'bigpot');
+  if (pts >= 20) fx(R, 'bigpot', null, '+' + pts + ' in one trick');
   R.leader = w; R.trick = []; R.lead = null; R.trickNo++;
   if (R.trickNo > R.handSize) endDeal(R);
   else { R.phase = 'play'; push(R); tick(R); }
@@ -243,7 +251,8 @@ function endDeal(R) {
   for (let i = 0; i < R.n; i++) (R.team.has(i) === made ? winners : losers).push(i);
   const award = made ? tp : (isLast ? op : R.bidAmount);
   winners.forEach(i => R.players[i].score += award);
-  R.result = { tp, op, made, isLast, award, winners };
+  R.result = { tp, op, made, isLast, award, winners, big: R.bigTrick, partnerAt: R.partnerAt,
+    cuts: Object.entries(R.cuts).map(([i, c]) => ({ i: +i, c })).sort((a, b) => b.c - a.c).slice(0, 1)[0] || null };
   say(R, made
     ? `<b>Contract made.</b> Team collected ${tp} against ${R.bidAmount}. <span class="hi">+${award}</span> each to ${winners.map(i => R.players[i].name).join(', ')}.`
     : `<b>Contract broken.</b> Team collected only ${tp} of ${R.bidAmount}. <span class="hi">+${award}</span> each to ${winners.map(i => R.players[i].name).join(', ')}.`);
@@ -397,7 +406,7 @@ function push(R) {
   R.players.forEach((p, i) => {
     if (p.bot || !p.ws) return;
     const v = viewFor(R, i);
-    v.fx = R.fxq.filter(e => e.to === null || e.to === i).map(e => e.name);
+    v.fx = R.fxq.filter(e => e.to === null || e.to === i).map(e => ({ n: e.name, l: e.label }));
     v.fxId = seq;
     send(p.ws, { t: 'state', v });
   });
