@@ -165,6 +165,9 @@ function doDeclare(R, idx, trump, calls) {
   R.trump = trump; R.called = [{ r: calls[0].r, s: calls[0].s }, { r: calls[1].r, s: calls[1].s }];
   R.phase = 'play'; R.leader = R.bidder; R.trickNo = 1; R.trick = []; R.lead = null;
   say(R, `Trump is <span class="hi">${trump}</span>. Called: <span class="hi">${R.called[0].r}${R.called[0].s}</span> and <span class="hi">${R.called[1].r}${R.called[1].s}</span>.`);
+  fx(R, 'declared', null, JSON.stringify({
+    b: esc2(R.players[R.bidder].name), a: R.bidAmount, t: trump, c: R.called
+  }));
   push(R); tick(R);
 }
 
