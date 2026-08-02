@@ -65,6 +65,14 @@ Everyone always loads the same page, so there is no such thing as one person bei
 
 ---
 
+## Table talk and sound
+
+Tap the speech bubble in the top bar to open chat. There are tap-to-send phrases for mid-hand use plus a normal text box. Incoming messages appear briefly as a tap-through notice even when chat is closed, with an unread count on the bubble.
+
+Sound is synthesised in the browser, so there are no audio files to host and nothing to download. The speaker icon mutes it, and the choice is remembered on that phone. Cues fire for: your turn, a card landing, a trump cut, a queen of spades appearing, winning a trick, a trick worth 20 or more, a partner revealing themselves, a contract being taken, and the contract being made or broken.
+
+Phones need one tap anywhere before audio can start. That is a browser rule, not a bug, and the first tap on the name screen handles it.
+
 ## Things worth knowing
 
 **The free plan sleeps.** After 15 minutes with nobody connected, Render puts the service to sleep. The next person to open the link waits about a minute for it to wake. Once a game is running, traffic keeps it awake. If that wait irritates people, Render's Starter plan removes it for roughly 600 rupees a month.
@@ -100,7 +108,7 @@ BOT_MS=200 TRICK_MS=400 npm start
 - 14 cards each at six-handed over 9 rounds, 12 each at seven-handed over 10 rounds.
 - 200 points on the table: every 5 and 10 is 5, every ace is 10, each queen of spades is 20.
 - Bidding opens at 100 from the dealer's left, who cannot pass. Raises in fives to a ceiling of 200.
-- The bidder names trump and calls two cards. The first player to lay each one joins the team. The bidder may call a card he holds; if he lays that copy himself, whoever holds the second copy is the partner.
+- The bidder names trump and calls any two cards, and may call the same card twice to bring in a partner on each copy. The first player to lay each one joins the team. The bidder may call a card he holds; if he lays that copy himself, whoever holds the second copy is the partner. If one player lays both called cards, he is the sole partner and the bidder plays two against the rest.
 - Follow suit if you can. Highest trump wins, else highest of the led suit. Identical cards tie in favour of whoever played first.
 - Making the bid pays the team what it actually collected. Falling short pays every opponent the bid amount, except in the final round where it pays what the opponents actually collected.
 - Highest personal total after the last round wins.

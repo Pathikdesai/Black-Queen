@@ -62,10 +62,23 @@ function createRoom(size) {
   const code = newCode();
   const R = {
     code, size, phase: 'lobby', players: [], hostToken: null,
-    log: [], timer: null, createdAt: Date.now(), lastTouch: Date.now()
+    log: [], chat: [], fxq: [], fxSeq: 0, turnKey: null,
+    timer: null, createdAt: Date.now(), lastTouch: Date.now()
   };
   rooms.set(code, R);
   return R;
+}
+function fx(R, name, to) { R.fxq.push({ name, to: (to === undefined ? null : to) }); }
+function notifyTurn(R) {
+  let k = null;
+  if (R.phase === 'play') k = 'p' + turnPlayer(R);
+  else if (R.phase === 'bid') k = 'b' + R.bidState.turn;
+  else if (R.phase === 'declare') k = 'd' + R.bidder;
+  if (k && k !== R.turnKey) {
+    R.turnKey = k;
+    const i = +k.slice(1);
+    if (R.players[i] && !R.players[i].bot) fx(R, 'yourturn', i);
+  }
 }
 function say(R, html) { R.log.unshift(html); if (R.log.length > 60) R.log.pop(); }
 
@@ -131,6 +144,7 @@ function afterBid(R, from) {
     R.team = new Set([R.bidder]); R.privateTeam = new Set([R.bidder]);
     R.phase = 'declare';
     say(R, `<b>${R.players[R.bidder].name}</b> takes the contract at <span class="hi">${R.bidAmount}</span>.`);
+    fx(R, 'contract');
     push(R); tick(R); return;
   }
   b.turn = nextBidder(R, from);
@@ -165,14 +179,16 @@ function doPlay(R, idx, cardId) {
   if (R.trick.length === 0) R.lead = card.s;
   R.trick.push({ p: idx, card });
 
+  fx(R, 'card');
+  if (card.r === 'Q' && card.s === 'S') fx(R, 'queen');
+  if (card.s === R.trump && R.lead !== R.trump) fx(R, 'trumpcut');
+
   for (let k = 0; k < 2; k++) {
     if (R.calledDone[k]) continue;
     const cc = R.called[k];
     if (card.r !== cc.r || card.s !== cc.s) continue;
-    if (!R.team.has(idx)) {
-      R.calledDone[k] = true; R.team.add(idx); R.privateTeam.add(idx);
-      say(R, `<span class="jd">${p.name} lays ${cc.r}${cc.s} and joins ${R.players[R.bidder].name}.</span>`);
-    } else {
+    if (idx === R.bidder) {
+      // the bidder cannot partner himself, so the call passes to the other copy
       const holder = R.players.findIndex((q, j) => !R.team.has(j) && q.hand.some(c => c.r === cc.r && c.s === cc.s));
       if (holder >= 0) {
         R.privateTeam.add(holder);
@@ -181,6 +197,15 @@ function doPlay(R, idx, cardId) {
         R.calledDone[k] = true;
         say(R, `No ${cc.r}${cc.s} left outside the bidding side, so that call is dead.`);
       }
+    } else if (!R.team.has(idx)) {
+      R.calledDone[k] = true; R.team.add(idx); R.privateTeam.add(idx);
+      say(R, `<span class="jd">${p.name} lays ${cc.r}${cc.s} and joins ${R.players[R.bidder].name}.</span>`);
+      fx(R, 'partner');
+    } else {
+      // already a partner, and now holds a second called card: the call is spent, no third player joins
+      R.calledDone[k] = true;
+      say(R, `<span class="jd">${p.name} lays ${cc.r}${cc.s} as well, so ${R.players[R.bidder].name} plays with one partner only.</span>`);
+      fx(R, 'partner');
     }
     break;
   }
@@ -201,6 +226,8 @@ function resolveTrick(R) {
   R.players[w].won += pts;
   R.lastTrick = { winner: w, pts };
   if (pts > 0) say(R, `${R.players[w].name} takes trick ${R.trickNo} <span class="hi">(+${pts})</span>.`);
+  fx(R, 'trickwin', w);
+  if (pts >= 20) fx(R, 'bigpot');
   R.leader = w; R.trick = []; R.lead = null; R.trickNo++;
   if (R.trickNo > R.handSize) endDeal(R);
   else { R.phase = 'play'; push(R); tick(R); }
@@ -220,6 +247,7 @@ function endDeal(R) {
   say(R, made
     ? `<b>Contract made.</b> Team collected ${tp} against ${R.bidAmount}. <span class="hi">+${award}</span> each to ${winners.map(i => R.players[i].name).join(', ')}.`
     : `<b>Contract broken.</b> Team collected only ${tp} of ${R.bidAmount}. <span class="hi">+${award}</span> each to ${winners.map(i => R.players[i].name).join(', ')}.`);
+  for (let i = 0; i < R.n; i++) fx(R, winners.includes(i) ? 'made' : 'broken', i);
   R.phase = isLast ? 'gameover' : 'dealover';
   push(R);
   if (!isLast) arm(R, () => { if (R.phase === 'dealover') startDeal(R); }, NEXT_MS);
@@ -326,6 +354,7 @@ function viewFor(R, me) {
     return {
       phase: 'lobby', code: R.code, size: R.size, you: me,
       isHost: R.players[me] && R.players[me].token === R.hostToken,
+      chat: R.chat.slice(-40),
       seats: R.players.map(p => ({ name: p.name, bot: !!p.bot, connected: p.connected }))
     };
   }
@@ -345,7 +374,8 @@ function viewFor(R, me) {
       name: q.name, score: q.score, cards: q.hand.length, bot: !!q.bot,
       connected: q.connected, won: showPts ? q.won : null
     })),
-    hand: p ? sortHand(p.hand.slice(), R.trump) : []
+    hand: p ? sortHand(p.hand.slice(), R.trump) : [],
+    chat: R.chat.slice(-40)
   };
   if (R.phase === 'bid') {
     v.bid = {
@@ -362,7 +392,16 @@ function viewFor(R, me) {
 function send(ws, obj) { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(obj)); } catch (e) { } } }
 function push(R) {
   R.lastTouch = Date.now();
-  R.players.forEach((p, i) => { if (!p.bot && p.ws) send(p.ws, { t: 'state', v: viewFor(R, i) }); });
+  notifyTurn(R);
+  const seq = ++R.fxSeq;
+  R.players.forEach((p, i) => {
+    if (p.bot || !p.ws) return;
+    const v = viewFor(R, i);
+    v.fx = R.fxq.filter(e => e.to === null || e.to === i).map(e => e.name);
+    v.fxId = seq;
+    send(p.ws, { t: 'state', v });
+  });
+  R.fxq = [];
 }
 
 /* ========================= SOCKETS ========================= */
@@ -443,6 +482,19 @@ function handle(ws, m) {
     return;
   }
   if (m.t === 'start' && R.phase === 'lobby' && R.players[me].token === R.hostToken) { startGame(R); return; }
+  if (m.t === 'chat') {
+    const now = Date.now();
+    const p = R.players[me];
+    if (p.lastChat && now - p.lastChat < 600) return;
+    const text = String(m.text || '').replace(/[<>&"']/g, '').trim().slice(0, 180);
+    if (!text) return;
+    p.lastChat = now;
+    R.chat.push({ i: me, name: p.name, text, at: now });
+    if (R.chat.length > 60) R.chat.shift();
+    for (let j = 0; j < R.players.length; j++) if (j !== me) fx(R, 'chat', j);
+    push(R);
+    return;
+  }
   if (m.t === 'bid') return doBid(R, me, Number(m.amount));
   if (m.t === 'pass') return doPass(R, me);
   if (m.t === 'declare') return doDeclare(R, me, m.trump, m.calls);
