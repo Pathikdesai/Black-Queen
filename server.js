@@ -69,7 +69,8 @@ function createRoom(size) {
   return R;
 }
 function esc2(x) { return String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-function fx(R, name, to, label) { R.fxq.push({ name, to: (to === undefined ? null : to), label: label || null }); }
+function fx(R, name, to, label, data) { R.fxq.push({ name, to: (to === undefined ? null : to), label: label || null, data: data || null }); }
+var SLOW_MS_DEFAULT = 15000;
 function notifyTurn(R) {
   let k = null;
   if (R.phase === 'play') k = 'p' + turnPlayer(R);
@@ -79,6 +80,17 @@ function notifyTurn(R) {
     R.turnKey = k;
     const i = +k.slice(1);
     if (R.players[i] && !R.players[i].bot) fx(R, 'yourturn', i);
+    clearTimeout(R.slowTimer);
+    if (R.players[i] && !R.players[i].bot) {
+      const mine = k;
+      R.slowTimer = setTimeout(() => {
+        // still the same person still sitting on the same turn
+        if (R.turnKey !== mine || R.phase === 'lobby' || R.phase === 'gameover') return;
+        fx(R, 'slow', null, esc2(R.players[i].name) + ' is thinking',
+          { who: R.players[i].name, seconds: Math.round((typeof SLOW_MS === 'number' ? SLOW_MS : SLOW_MS_DEFAULT) / 1000), phase: R.phase });
+        push(R);
+      }, (typeof SLOW_MS === 'number' ? SLOW_MS : SLOW_MS_DEFAULT));
+    }
   }
 }
 function say(R, html) { R.log.unshift(html); if (R.log.length > 60) R.log.pop(); }
@@ -167,7 +179,7 @@ function doDeclare(R, idx, trump, calls) {
   say(R, `Trump is <span class="hi">${trump}</span>. Called: <span class="hi">${R.called[0].r}${R.called[0].s}</span> and <span class="hi">${R.called[1].r}${R.called[1].s}</span>.`);
   fx(R, 'declared', null, JSON.stringify({
     b: esc2(R.players[R.bidder].name), a: R.bidAmount, t: trump, c: R.called
-  }));
+  }), { bidder: R.players[R.bidder].name, amount: R.bidAmount, trump, calls: R.called });
   push(R); tick(R);
 }
 
@@ -185,10 +197,10 @@ function doPlay(R, idx, cardId) {
   R.trick.push({ p: idx, card });
 
   fx(R, 'card');
-  if (card.r === 'Q' && card.s === 'S') fx(R, 'queen', null, 'Black Queen &middot; 20');
+  if (card.r === 'Q' && card.s === 'S') fx(R, 'queen', null, 'Black Queen &middot; 20', { who: p.name });
   if (card.s === R.trump && R.lead !== R.trump && R.lead !== null) {
     R.cuts[idx] = (R.cuts[idx] || 0) + 1;
-    fx(R, 'trumpcut', null, esc2(p.name) + ' cuts');
+    fx(R, 'trumpcut', null, esc2(p.name) + ' cuts', { who: p.name, suit: R.trump });
   }
 
   for (let k = 0; k < 2; k++) {
@@ -209,13 +221,15 @@ function doPlay(R, idx, cardId) {
       R.calledDone[k] = true; R.team.add(idx); R.privateTeam.add(idx);
       R.partnerAt[k] = R.trickNo;
       say(R, `<span class="jd">${p.name} lays ${cc.r}${cc.s} and joins ${R.players[R.bidder].name}.</span>`);
-      fx(R, 'partner', null, esc2(p.name) + ' joins ' + esc2(R.players[R.bidder].name));
+      fx(R, 'partner', null, esc2(p.name) + ' joins ' + esc2(R.players[R.bidder].name),
+        { who: p.name, bidder: R.players[R.bidder].name, team: shownTeam(R), settled: R.calledDone[0] && R.calledDone[1], sole: false });
     } else {
       // already a partner, and now holds a second called card: the call is spent, no third player joins
       R.calledDone[k] = true;
       R.partnerAt[k] = R.trickNo;
       say(R, `<span class="jd">${p.name} lays ${cc.r}${cc.s} as well, so ${R.players[R.bidder].name} plays with one partner only.</span>`);
-      fx(R, 'partner', null, esc2(p.name) + ' partners alone');
+      fx(R, 'partner', null, esc2(p.name) + ' partners alone',
+        { who: p.name, bidder: R.players[R.bidder].name, team: shownTeam(R), settled: R.calledDone[0] && R.calledDone[1], sole: true });
     }
     break;
   }
@@ -237,13 +251,14 @@ function resolveTrick(R) {
   R.lastTrick = { winner: w, pts };
   if (pts > 0) say(R, `${R.players[w].name} takes trick ${R.trickNo} <span class="hi">(+${pts})</span>.`);
   if (!R.bigTrick || pts > R.bigTrick.pts) R.bigTrick = { i: w, pts, no: R.trickNo };
-  fx(R, 'trickwin', w);
-  if (pts >= 20) fx(R, 'bigpot', null, '+' + pts + ' in one trick');
+  fx(R, 'trickwin', w, null, { who: R.players[w].name, pts, trick: R.trickNo });
+  if (pts >= 20) fx(R, 'bigpot', null, '+' + pts + ' in one trick', { who: R.players[w].name, pts, trick: R.trickNo });
   R.leader = w; R.trick = []; R.lead = null; R.trickNo++;
   if (R.trickNo > R.handSize) endDeal(R);
   else { R.phase = 'play'; push(R); tick(R); }
 }
 
+function shownTeam(R) { return [...R.team].map(i => R.players[i].name); }
 function teamPoints(R) { let t = 0; R.team.forEach(i => t += R.players[i].won); return t; }
 
 function endDeal(R) {
@@ -259,7 +274,23 @@ function endDeal(R) {
   say(R, made
     ? `<b>Contract made.</b> Team collected ${tp} against ${R.bidAmount}. <span class="hi">+${award}</span> each to ${winners.map(i => R.players[i].name).join(', ')}.`
     : `<b>Contract broken.</b> Team collected only ${tp} of ${R.bidAmount}. <span class="hi">+${award}</span> each to ${winners.map(i => R.players[i].name).join(', ')}.`);
-  for (let i = 0; i < R.n; i++) fx(R, winners.includes(i) ? 'made' : 'broken', i);
+  const rd = { bidder: R.players[R.bidder].name, amount: R.bidAmount, made, tp, op,
+    team: shownTeam(R), winners: winners.map(i => R.players[i].name) };
+  for (let i = 0; i < R.n; i++) fx(R, winners.includes(i) ? 'made' : 'broken', i, null, rd);
+  fx(R, made ? 'contractmade' : 'contractbroken', null, null, rd);
+  if (tp === TOTALPTS || op === TOTALPTS) {
+    const swept = tp === TOTALPTS;
+    fx(R, 'sweep', null, (swept ? 'Bidding side' : 'The opposition') + ' took all 200',
+      { side: swept ? 'bidding' : 'against', pts: TOTALPTS,
+        team: swept ? shownTeam(R) : R.players.filter((q, i) => !R.team.has(i)).map(q => q.name) });
+  }
+  if (isLast) {
+    const best = Math.max(...R.players.map(q => q.score));
+    const champs = R.players.filter(q => q.score === best).map(q => q.name);
+    fx(R, 'gamewinner', null, champs.join(' and ') + ' wins',
+      { who: champs[0], winners: champs, team: champs, score: best, tied: champs.length > 1 });
+  }
+  clearTimeout(R.slowTimer);
   R.phase = isLast ? 'gameover' : 'dealover';
   push(R);
   if (!isLast) arm(R, () => { if (R.phase === 'dealover') startDeal(R); }, NEXT_MS);
@@ -343,6 +374,7 @@ function botPlay(R, i) {
 
 /* ========================= TURN DRIVER ========================= */
 const AWAY_MS = +(process.env.AWAY_MS || 30000);
+const SLOW_MS = +(process.env.SLOW_MS || 15000);
 const BOT_MS = +(process.env.BOT_MS || 900);
 const TRICK_MS = +(process.env.TRICK_MS || 2600);
 const NEXT_MS = +(process.env.NEXT_MS || 7000);
@@ -409,7 +441,7 @@ function push(R) {
   R.players.forEach((p, i) => {
     if (p.bot || !p.ws) return;
     const v = viewFor(R, i);
-    v.fx = R.fxq.filter(e => e.to === null || e.to === i).map(e => ({ n: e.name, l: e.label }));
+    v.fx = R.fxq.filter(e => e.to === null || e.to === i).map(e => ({ n: e.name, l: e.label, d: e.data }));
     v.fxId = seq;
     send(p.ws, { t: 'state', v });
   });
@@ -423,9 +455,25 @@ const server = http.createServer((req, res) => {
   const fp = path.join(__dirname, 'public', path.normalize(file).replace(/^(\.\.[/\\])+/, ''));
   fs.readFile(fp, (err, data) => {
     if (err) { res.writeHead(404); return res.end('Not found'); }
-    const ext = path.extname(fp);
-    const type = ext === '.html' ? 'text/html' : ext === '.js' ? 'text/javascript' : ext === '.css' ? 'text/css' : 'text/plain';
-    res.writeHead(200, { 'Content-Type': type + '; charset=utf-8', 'Cache-Control': 'no-cache' });
+    const ext = path.extname(fp).toLowerCase();
+    const TYPES = {
+      '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+      '.json': 'application/json', '.svg': 'image/svg+xml', '.txt': 'text/plain',
+      '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg',
+      '.wav': 'audio/wav', '.webm': 'audio/webm', '.aac': 'audio/aac',
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.webp': 'image/webp', '.ico': 'image/x-icon'
+    };
+    const type = TYPES[ext] || 'application/octet-stream';
+    const isText = /^(text\/|application\/json)/.test(type);
+    // media is immutable in practice, so let phones keep it instead of
+    // pulling it down again on every single refresh
+    const cache = /^(audio|image)\//.test(type) ? 'public, max-age=604800' : 'no-cache';
+    res.writeHead(200, {
+      'Content-Type': type + (isText ? '; charset=utf-8' : ''),
+      'Content-Length': data.length,
+      'Cache-Control': cache
+    });
     res.end(data);
   });
 });
@@ -446,7 +494,7 @@ wss.on('connection', ws => {
     p.connected = false; p.ws = null;
     if (R.phase === 'lobby') {
       R.players = R.players.filter(q => q !== p);
-      if (R.players.length === 0) { clearTimeout(R.timer); rooms.delete(R.code); return; }
+      if (R.players.length === 0) { clearTimeout(R.timer); clearTimeout(R.slowTimer); rooms.delete(R.code); return; }
       if (p.token === R.hostToken) R.hostToken = R.players[0].token;
     }
     push(R); tick(R);
@@ -507,6 +555,16 @@ function handle(ws, m) {
     push(R);
     return;
   }
+  if (m.t === 'hagga') {
+    const now = Date.now();
+    const p = R.players[me];
+    if (p.lastHagga && now - p.lastHagga < 3000) return;
+    p.lastHagga = now;
+    say(R, `<b>${p.name}</b> hits the Hagga.`);
+    fx(R, 'hagga', null, esc2(p.name) + ' hits the Hagga', { who: p.name });
+    push(R);
+    return;
+  }
   if (m.t === 'bid') return doBid(R, me, Number(m.amount));
   if (m.t === 'pass') return doPass(R, me);
   if (m.t === 'declare') return doDeclare(R, me, m.trump, m.calls);
@@ -533,7 +591,7 @@ setInterval(() => {
   const now = Date.now();
   rooms.forEach((R, code) => {
     const live = R.players.some(p => !p.bot && p.connected);
-    if (!live && now - R.lastTouch > 30 * 60 * 1000) { clearTimeout(R.timer); rooms.delete(code); }
+    if (!live && now - R.lastTouch > 30 * 60 * 1000) { clearTimeout(R.timer); clearTimeout(R.slowTimer); rooms.delete(code); }
   });
 }, 60000);
 
