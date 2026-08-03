@@ -78,6 +78,9 @@ background:rgba(255,255,255,.03);position:relative;transition:.2s}
 .trickarea.sweep .played{animation:sweep .34s ease-in forwards}
 @keyframes nope{0%,100%{transform:translateX(0)}22%{transform:translateX(-6px)}46%{transform:translateX(5px)}72%{transform:translateX(-3px)}}
 .card.nope{animation:nope .3s ease}
+.iconbtn.hagga{color:var(--brass);border-color:var(--brass);font-weight:600;letter-spacing:.04em}
+.iconbtn.hagga:active{background:rgba(201,153,46,.2)}
+.iconbtn.hagga.cool{opacity:.4;border-color:var(--line);color:var(--muted)}
 .flashbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 96px);
  z-index:58;background:rgba(15,22,38,.95);border:1px solid var(--line);color:var(--bone);
  padding:8px 15px;border-radius:999px;font-size:12.5px;pointer-events:none;
@@ -292,6 +295,77 @@ const SFX={
   broken(){ [523,440,349,262].forEach((f,i)=>blip(f,f,0.26,0.13,'sawtooth',i*0.09)); },
   chat(){ blip(880,880,0.07,0.10,'sine'); }
 };
+/* ============ CUSTOM SOUND PACK ============
+   Drop mp3 files in public/sounds/ and describe them in public/sounds/rules.json.
+   Nothing here is required: if the folder is missing the game runs exactly as before. */
+let PACK=[], packReady=false, packFired={};
+const audioCache={};
+function loadPack(){
+  fetch('sounds/rules.json',{cache:'no-cache'})
+    .then(r=>r.ok?r.json():null)
+    .then(j=>{ if(!Array.isArray(j))return;
+      PACK=j.filter(r=>r&&r.when&&r.sound); packReady=true;
+      PACK.forEach(r=>{ try{ const a=new Audio('sounds/'+r.sound); a.preload='auto';
+        a.volume=typeof r.volume==='number'?Math.max(0,Math.min(1,r.volume)):0.9;
+        audioCache[r.sound]=a; }catch(e){} });
+      console.log('sound pack loaded:',PACK.length,'rules');
+    })
+    .catch(()=>{});
+}
+const norm=x=>String(x==null?'':x).trim().toLowerCase();
+function namesIn(d){
+  const out=[];
+  if(d.who)out.push(d.who);
+  if(d.bidder)out.push(d.bidder);
+  if(Array.isArray(d.team))out.push(...d.team);
+  if(Array.isArray(d.winners))out.push(...d.winners);
+  return out.map(norm);
+}
+function ruleMatches(r,e){
+  if(norm(r.when)!==norm(e.n))return false;
+  const d=e.d||{};
+  // every listed player must be involved in this event
+  if(Array.isArray(r.players)&&r.players.length){
+    const pool=(r.when==='partner'||r.when==='sweep'||r.when==='gamewinner')&&Array.isArray(d.team)
+      ?d.team.map(norm):namesIn(d);
+    // a nested array means "any one of these will do"
+    const ok=r.players.every(x=>Array.isArray(x)
+      ?x.some(y=>pool.includes(norm(y)))
+      :pool.includes(norm(x)));
+    if(!ok)return false;
+  }
+  if(r.player){
+    const want=Array.isArray(r.player)?r.player.map(norm):[norm(r.player)];
+    if(!want.includes(norm(d.who))&&!want.includes(norm(d.bidder)))return false;
+  }
+  if(r.side&&norm(r.side)!==norm(d.side))return false;
+  if(r.when==='partner'&&r.settled&&!d.settled)return false;
+  if(r.sole===true&&!d.sole)return false;
+  if(typeof r.minPoints==='number'&&!(d.pts>=r.minPoints))return false;
+  if(r.trump&&norm(d.trump||d.suit)!==norm(r.trump))return false;
+  if(typeof r.minBid==='number'&&!(d.amount>=r.minBid))return false;
+  return true;
+}
+function packPlay(r){
+  if(muted)return;
+  const a=audioCache[r.sound]; if(!a)return;
+  try{ a.currentTime=0; const q=a.play(); if(q&&q.catch)q.catch(()=>{}); }catch(e){}
+  if(r.text)flash(r.text);
+  if(r.buzz)buzz([18,60,18]);
+}
+function runPack(evts){
+  if(!packReady||!PACK.length)return;
+  evts.forEach(e=>{
+    PACK.forEach((r,i)=>{
+      if(!ruleMatches(r,e))return;
+      const scope=r.once||'deal';
+      const key=i+'|'+(scope==='deal'?('d'+V.dealNo):scope==='game'?'g':Math.random());
+      if(scope!=='always'&&packFired[key])return;
+      packFired[key]=1;
+      packPlay(r);
+    });
+  });
+}
 let flashT=null;
 function flash(msg){
   let el=document.getElementById('flashbar');
@@ -371,6 +445,7 @@ let chatOpen=false, seenChat=0, unread=0, sheetEl=null;
 let ws=null, V=null, seat=null, myToken=store.get('bq_token'), myCode=store.get('bq_code');
 let uiBid=MINBID, uiTrump=null, uiCalls=[], screen='home', pending=null;
 
+loadPack();
 function connect(then){
   const proto=location.protocol==='https:'?'wss':'ws';
   ws=new WebSocket(proto+'://'+location.host);
@@ -383,7 +458,7 @@ function connect(then){
       V=m.v; screen=V.phase==='lobby'?'lobby':'game';
       if(V.fxId&&V.fxId!==lastFx){ lastFx=V.fxId;
         const evts=(V.fx||[]).map(e=>typeof e==='string'?{n:e,l:null}:e);
-        play(evts.map(e=>e.n)); showMoments(evts); }
+        play(evts.map(e=>e.n)); showMoments(evts); runPack(evts); }
       const c=V.chat||[];
       if(c.length>seenChat){
         const fresh=c.slice(seenChat);
@@ -566,7 +641,7 @@ function renderGame(R){
     <span class="spacer"></span><span class="chipline">${info}</span>
     <button class="iconbtn rel" id="ch">&#128172;${unread?`<span class="badge">${unread>9?'9+':unread}</span>`:''}</button>
     <button class="iconbtn" id="mu">${muted?'&#128263;':'&#128266;'}</button>
-    <button class="iconbtn" id="rl">?</button><button class="iconbtn" id="lv">Exit</button></div>
+    <button class="iconbtn hagga" id="hg">Hagga</button><button class="iconbtn" id="rl">?</button><button class="iconbtn" id="lv">Exit</button></div>
     <div class="seats">${seats}</div>
     ${teamsBar()}
     <div class="table"><div class="trickarea">${trick}</div></div>
@@ -579,6 +654,13 @@ function renderGame(R){
   document.getElementById('lv').onclick=leave;
   document.getElementById('ch').onclick=()=>chatOpen?closeChat():openChat();
   document.getElementById('mu').onclick=toggleMute;
+  const hg=document.getElementById('hg');
+  if(hg)hg.onclick=()=>{
+    if(hg.disabled)return;
+    ac(); buzz(14); send({t:'hagga'});
+    hg.disabled=true; hg.classList.add('cool');
+    setTimeout(()=>{ hg.disabled=false; hg.classList.remove('cool'); },3000);
+  };
   [...R.querySelectorAll('.hand .card.ok')].forEach(el=>el.onclick=()=>{ buzz(11); send({t:'play',cardId:+el.dataset.id}); });
   [...R.querySelectorAll('.hand .card.no')].forEach(el=>el.onclick=()=>{
     el.classList.remove('nope'); void el.offsetWidth; el.classList.add('nope'); buzz([9,42,9]);
