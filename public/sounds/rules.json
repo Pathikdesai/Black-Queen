@@ -1,1 +1,56 @@
+[
+  {
+    "_note": "Kartik and Smit end up on the same side",
+    "when": "partner",
+    "players": ["Kartik", "Smit"],
+    "settled": true,
+    "sound": "kartik-smit.mp3",
+    "text": "Kartik and Smit together",
+    "buzz": true,
+    "once": "deal"
+  },
 
+  {
+    "_note": "Sujeet with any one of Sanjay, Sanju or Morpheus",
+    "when": "partner",
+    "players": ["Sujeet", ["Sanjay", "Sanju", "Morpheus"]],
+    "settled": true,
+    "sound": "sujeet-sanjay.mp3",
+    "text": "Sujeet finds his man",
+    "buzz": true,
+    "once": "deal"
+  },
+
+  {
+    "_note": "one side collected all 200 points in a deal",
+    "when": "sweep",
+    "sound": "clean-sweep.mp3",
+    "text": "All two hundred. Nothing left.",
+    "buzz": true,
+    "once": "deal"
+  },
+
+  {
+    "_note": "somebody has been sitting on their turn too long",
+    "when": "slow",
+    "sound": "hurry-up.mp3",
+    "once": "always"
+  },
+
+  {
+    "_note": "Smit finishes the whole game on top",
+    "when": "gamewinner",
+    "player": "Smit",
+    "sound": "smit-wins.mp3",
+    "text": "Smit takes the night",
+    "buzz": true,
+    "once": "game"
+  },
+
+  {
+    "_note": "the Hagga button in the top bar",
+    "when": "hagga",
+    "sound": "hagga.mp3",
+    "once": "always"
+  }
+]
