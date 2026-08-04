@@ -444,7 +444,41 @@ function flash(msg){
   el.className='flashbar'; el.innerHTML=msg;
   clearTimeout(flashT); flashT=setTimeout(()=>{ if(el)el.className='flashbar out'; },1900);
 }
-function buzz(pat){ try{ if(navigator.vibrate&&!store.get('bq_nohap'))navigator.vibrate(pat); }catch(e){} }
+/* Vibration reality check.
+   navigator.vibrate is Android and desktop Chrome only. Safari on iPhone has
+   never shipped it, so on an iPhone the calls below simply do nothing.
+   Apple did add a haptic tick to the switch control in Safari 17.4, which we
+   can borrow, but it only fires while the browser considers a real finger
+   press to be in progress. So iPhones get haptics on buttons they tap, and
+   nothing for events like a partner being revealed. That is an Apple limit,
+   not something the game can route around. */
+const HAPTICS = { api: typeof navigator!=='undefined' && !!navigator.vibrate, sw: false, last: 'never called' };
+let swEl=null;
+function initSwitchHaptic(){
+  try{
+    const i=document.createElement('input');
+    i.type='checkbox';
+    if(!('switch' in i))return;          // Safari 17.4+ only
+    i.setAttribute('switch','');
+    i.style.cssText='position:fixed;left:-9999px;width:1px;height:1px;opacity:0';
+    document.body.appendChild(i);
+    swEl=i; HAPTICS.sw=true;
+  }catch(e){}
+}
+function switchTick(n){
+  if(!swEl)return false;
+  try{ for(let k=0;k<Math.max(1,Math.min(3,n));k++)swEl.checked=!swEl.checked; return true; }
+  catch(e){ return false; }
+}
+function buzz(pat){
+  if(store.get('bq_nohap')){ HAPTICS.last='turned off in settings'; return; }
+  try{
+    if(navigator.vibrate){ navigator.vibrate(pat); HAPTICS.last='vibrate api'; return; }
+    const pulses=Array.isArray(pat)?Math.ceil(pat.length/2):1;
+    if(switchTick(pulses)){ HAPTICS.last='ios switch tick'; return; }
+    HAPTICS.last='no haptic support on this browser';
+  }catch(e){ HAPTICS.last='error: '+(e&&e.name); }
+}
 function banner(cls,title,sub){
   const d=document.createElement('div'); d.className='banner '+cls;
   d.innerHTML=`<div class="bt">${title}</div>${sub?`<div class="bs">${sub}</div>`:''}`;
@@ -517,6 +551,7 @@ let ws=null, V=null, seat=null, myToken=store.get('bq_token'), myCode=store.get(
 let uiBid=MINBID, uiTrump=null, uiCalls=[], screen='home', pending=null;
 
 loadPack();
+if(document.body)initSwitchHaptic();else document.addEventListener('DOMContentLoaded',initSwitchHaptic);
 function connect(then){
   const proto=location.protocol==='https:'?'wss':'ws';
   ws=new WebSocket(proto+'://'+location.host);
@@ -917,7 +952,25 @@ function soundDiag(){
     &nbsp;&middot;&nbsp; muted &nbsp;<b>${muted?'yes':'no'}</b>
     &nbsp;&middot;&nbsp; primed &nbsp;<b>${primed?'yes':'no'}</b></p>
     ${rows?`<div style="margin-top:10px">${rows}</div>`:'<p style="color:var(--muted);font-size:12.5px">No clips listed. If rules.json failed to load, check the file is at public/sounds/rules.json in all lowercase.</p>'}
+    <h2 style="margin-top:18px">Vibration</h2>
+    <p style="font-size:12.5px">
+      Vibration API &nbsp;${HAPTICS.api?'<span style="color:#3E9B6E">supported</span>':'<span style="color:#D9484E">not supported</span>'}<br>
+      iPhone switch tick &nbsp;${HAPTICS.sw?'<span style="color:#3E9B6E">available</span>':'<span style="color:#8B93A7">unavailable</span>'}<br>
+      Last attempt &nbsp;<span style="color:var(--bone-dim)">${esc(HAPTICS.last)}</span>
+    </p>
+    <button class="btn" id="hapTest" style="margin-top:4px">Test vibration</button>
+    ${!HAPTICS.api?`<p style="color:var(--muted);font-size:11.5px;margin-top:10px">Safari on iPhone has never supported the Vibration API, so buzzes on game events cannot work there. Chrome and Firefox on iPhone use Apple's engine underneath, so they behave the same. Android phones do support it. If you are on Android and it still does nothing, check the phone is not in a silent mode that also suppresses vibration, and that your browser has not disabled it.</p>`:''}
     <p style="color:var(--muted);font-size:11.5px;margin-top:12px">NOT FOUND means the filename in rules.json does not match a file in public/sounds. Names are case sensitive and the extension must match too, so kartik-smit.m4a will not answer to kartik-smit.mp3.</p>`);
+  wireHapTest();
+}
+function wireHapTest(){
+  const b=document.getElementById('hapTest');
+  if(!b)return;
+  b.onclick=()=>{
+    buzz([30,80,30]);
+    b.textContent='Tried: '+HAPTICS.last;
+    setTimeout(()=>{ if(b)b.textContent='Test vibration'; },2200);
+  };
 }
 function showRules(){
   modal(`<h2>Black Queen</h2>
