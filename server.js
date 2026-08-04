@@ -430,6 +430,7 @@ function viewFor(R, me) {
   const showPts = R.phase !== 'bid' && R.phase !== 'declare';
   const v = {
     phase: R.phase, code: R.code, you: me, n: R.n,
+    isHost: !!(R.players[me] && R.players[me].token === R.hostToken),
     dealNo: R.dealNo, totalDeals: R.totalDeals, handSize: R.handSize,
     trump: R.trump, called: R.called, calledDone: R.calledDone,
     bidder: R.bidder, bidAmount: R.bidAmount, dealer: R.dealer,
@@ -559,7 +560,9 @@ function handle(ws, m) {
         if (i >= 0) {
           const p = R.players[i];
           if (p.ws && p.ws !== ws) try { p.ws.close(); } catch (e) { }
+          const wasHost = p.token === R.hostToken;
           p.token = tok(); p.ws = ws; p.connected = true; ws.room = R;
+          if (wasHost) R.hostToken = p.token;
           send(ws, { t: 'seated', code: R.code, token: p.token, seat: i });
           say(R, `<b>${p.name}</b> is back at the table.`);
           push(R); tick(R); return;
