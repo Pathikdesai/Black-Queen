@@ -500,6 +500,7 @@ function contractCard(d){
   document.body.appendChild(el); setTimeout(()=>el.remove(),3200);
 }
 const BANNERS={
+  deadcontract:['cut','Out of reach'],
   queen:   ['q',  'Black Queen'],
   trumpcut:['cut','Trump cut'],
   bigpot:  ['pot','Big pot'],
@@ -507,7 +508,7 @@ const BANNERS={
 };
 let cutDeal=null, cutsShown=0;
 function bannerWorthy(e){
-  if(e.n==='queen'||e.n==='partner')return true;
+  if(e.n==='queen'||e.n==='partner'||e.n==='deadcontract')return true;
   if(e.n==='bigpot'){ const m=/\+(\d+)/.exec(e.l||''); return m&&+m[1]>=30; }
   if(e.n==='trumpcut'){
     if(cutDeal!==V.dealNo){ cutDeal=V.dealNo; cutsShown=0; }
@@ -889,17 +890,22 @@ function renderPanel(){
   if(V.phase==='dealover'||V.phase==='gameover'){
     const r=V.result;
     const nmOf=i=>i===V.you?'You':esc(V.seats[i].name);
+    const team=new Set(V.team);
+    const sideNames=on=>V.seats.map((s,i)=>i).filter(i=>team.has(i)===on)
+      .map(i=>i===V.you?`<span style="color:var(--jade)">you</span>`:esc(V.seats[i].name)).join(', ')||'nobody';
     const pAt=(r.partnerAt||[]).filter(x=>x);
     const rows=[
       ['Contract', `${esc(V.seats[V.bidder].name)} &middot; <b>${V.bidAmount}</b> &middot; ${SYM[V.trump]}`],
-      ['Bidding side', `<b>${r.tp}</b>`],
-      ['Against', `${r.op}`],
+      ['Bidding side', `${sideNames(true)} &nbsp; <b>${r.tp}</b>`],
+      ['Against', `${sideNames(false)} &nbsp; ${r.op}`],
+      r.early?['Unplayed', `${r.unplayed} pts never played`]:null,
       r.big?['Biggest trick', `${nmOf(r.big.i)} &middot; <b>+${r.big.pts}</b> on trick ${r.big.no}`]:null,
       pAt.length?['Partner shown', pAt.length>1?`tricks ${pAt.join(' and ')}`:`trick ${pAt[0]}`]:['Partner shown','never'],
       r.cuts?['Most trump cuts', `${nmOf(r.cuts.i)} &middot; ${r.cuts.c}`]:null
     ].filter(Boolean);
-    P.innerHTML=`<h3>${r.made?'Contract made':'Contract broken'}</h3>
+    P.innerHTML=`<h3>${r.made?'Contract made':(r.early?'Contract dead':'Contract broken')}</h3>
       <div class="sumgrid">${rows.map(x=>`<div class="k">${x[0]}</div><div class="v">${x[1]}</div>`).join('')}</div>
+      ${r.early?`<p style="margin-top:10px;color:var(--muted);font-size:12px">Both called cards were already down, so the sides above are final. The deal stopped because ${esc(V.seats[V.bidder].name)} could not reach ${V.bidAmount} even by taking every remaining point.</p>`:''}
       <p style="margin-top:11px">${r.isLast?'Final round, so scoring is at actual. ':''}<b style="color:var(--brass)">+${r.award}</b> each to ${r.winners.map(i=>esc(V.seats[i].name)).join(', ')}.</p>
       ${V.phase==='gameover'
         ? `<div class="row">${V.you===0?'<button class="btn wide" id="ag">Play another game</button>':''}<button class="btn quiet wide" id="fin">Final table</button></div>`
