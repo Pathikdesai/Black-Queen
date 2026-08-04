@@ -292,7 +292,7 @@ function primeClips(){
   });
 }
 document.addEventListener('pointerdown',()=>{
-  if(!muted)ac();
+  if(!muted){ ac(); holdSession(); }
   if(primed)return; primed=true;
   primeClips();
 },{passive:true});
@@ -301,17 +301,70 @@ document.addEventListener('pointerdown',()=>{
    an "interrupted" state that does not always clear by itself when you come
    back. Waking it explicitly on return, and rearming the clips so the next tap
    re-primes them, since a backgrounded element can come back stalled. */
+/* Three separate things go wrong with audio on a phone, and only one of them
+   is fixed by resuming the context.
+
+   1. The context is suspended when you leave the app. resume() handles that.
+   2. Safari has a long standing bug where, after an interruption, the context
+      says "running" but produces silence forever. The only cure is to close it
+      and build a new one, so we detect it by checking the clock is moving.
+   3. On iPhone the ringer switch silences Web Audio entirely. Holding a silent
+      looping element open puts the page on the media channel instead, which
+      ignores that switch. */
+const SILENT_WAV='data:audio/wav;base64,UklGRtQEAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YbAEAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA=';
+let holder=null;
+function holdSession(){
+  try{
+    if(!holder){
+      holder=new Audio(SILENT_WAV);
+      holder.loop=true; holder.volume=0.001;
+      holder.setAttribute('playsinline','');
+    }
+    if(holder.paused){ const q=holder.play(); if(q&&q.catch)q.catch(()=>{}); }
+  }catch(e){}
+}
+function rebuildClips(){
+  Object.keys(audioCache).forEach(k=>{
+    const old=audioCache[k];
+    try{
+      const a=new Audio('sounds/'+k);
+      a.preload='auto';
+      a.volume=old&&typeof old.volume==='number'?old.volume:0.9;
+      a.addEventListener('canplaythrough',()=>{packStatus.files[k]='ok';},{once:true});
+      a.addEventListener('error',()=>{packStatus.files[k]='missing';},{once:true});
+      audioCache[k]=a;
+    }catch(e){}
+  });
+}
+function hardResetAudio(){
+  try{ if(AC && AC.state!=='closed') AC.close(); }catch(e){}
+  AC=null;
+  ac();
+  rebuildClips();
+  primed=false;
+  HAPTICS.last='audio engine rebuilt';
+}
+/* The clock only advances while the context is genuinely producing sound, so a
+   frozen currentTime is the reliable tell for the silent-but-running bug. */
+function checkAlive(then){
+  if(!AC){ then(false); return; }
+  const t0=AC.currentTime;
+  setTimeout(()=>{ then(!!AC && AC.currentTime > t0); }, 260);
+}
 function wakeAudio(){
   if(muted)return;
+  holdSession();
   try{
-    if(AC && AC.state === 'closed'){ AC = null; ac(); }
-    else if(AC && (AC.state === 'suspended' || AC.state === 'interrupted')){
-      const q = AC.resume();
-      if(q && q.catch) q.catch(()=>{ primed = false; });
-    } else if(!AC){ ac(); }
-  }catch(e){ primed = false; }
-  Object.values(audioCache).forEach(a=>{ try{ if(a.readyState === 0) a.load(); }catch(e){} });
-  primed = false;   // next tap re-primes, which costs nothing if all is well
+    if(!AC || AC.state==='closed'){ hardResetAudio(); }
+    else if(AC.state==='suspended' || AC.state==='interrupted'){
+      const q=AC.resume();
+      if(q&&q.catch)q.catch(()=>hardResetAudio());
+    }
+  }catch(e){ hardResetAudio(); }
+  Object.values(audioCache).forEach(a=>{ try{ if(a.readyState===0)a.load(); }catch(e){} });
+  primed=false;
+  // and if it claims to be fine but is not actually running, rebuild it
+  setTimeout(()=>checkAlive(ok=>{ if(!ok) hardResetAudio(); }), 120);
 }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) wakeAudio(); });
 window.addEventListener('pageshow',wakeAudio);
@@ -1048,20 +1101,32 @@ function soundDiag(){
     </p>
     <h2 style="margin-top:18px">Audio engine</h2>
     <p style="font-size:12.5px">
-      State &nbsp;${(()=>{const st=AC?AC.state:'not started';
-        const good=st==='running';
-        return `<span style="color:${good?'#3E9B6E':(st==='not started'?'#8B93A7':'#D9484E')}">${esc(st)}</span>`;})()}<br>
+      State &nbsp;<span id="engState" style="color:${AC&&AC.state==='running'?'#3E9B6E':'#D9484E'}">${esc(AC?AC.state:'not started')}</span><br>
+      Media session held &nbsp;<b>${holder&&!holder.paused?'yes':'no'}</b><br>
       Clips primed &nbsp;<b>${primed?'yes':'not since last tap'}</b>
     </p>
+    <p style="color:var(--muted);font-size:11.5px;margin-top:2px">If the button says the engine is running but you still hear nothing, it is almost certainly outside the game: check the side switch on your iPhone is not set to silent, and that the volume rocker is up while this page is open, since phones keep a separate volume for media.</p>
     <button class="btn" id="wakeBtn" style="margin-top:4px">Wake audio</button>
     <button class="btn" id="hapTest" style="margin-top:4px">Test vibration</button>
     ${!HAPTICS.api?`<p style="color:var(--muted);font-size:11.5px;margin-top:10px">Safari on iPhone has never supported the Vibration API, so buzzes on game events cannot work there. Chrome and Firefox on iPhone use Apple's engine underneath, so they behave the same. Android phones do support it. If you are on Android and it still does nothing, check the phone is not in a silent mode that also suppresses vibration, and that your browser has not disabled it.</p>`:''}
     <p style="color:var(--muted);font-size:11.5px;margin-top:12px">NOT FOUND means the filename in rules.json does not match a file in public/sounds. Names are case sensitive and the extension must match too, so kartik-smit.m4a will not answer to kartik-smit.mp3.</p>`);
   wireHapTest();
   const wb=document.getElementById('wakeBtn');
-  if(wb)wb.onclick=()=>{ ac(); wakeAudio(); primed=true; primeClips();
-    wb.textContent='Engine: '+(AC?AC.state:'not started');
-    setTimeout(()=>{ if(wb)wb.textContent='Wake audio'; },2200); };
+  if(wb)wb.onclick=()=>{
+    wb.textContent='Rebuilding...';
+    holdSession();
+    hardResetAudio();          // full teardown, not a resume
+    primed=true; primeClips();
+    setTimeout(()=>{
+      try{ play(['yourturn']); }catch(e){}          // you should hear this
+      checkAlive(ok=>{
+        if(wb)wb.textContent = ok ? 'Engine running, did you hear it?' : 'Still silent, see note below';
+        const st=document.getElementById('engState');
+        if(st)st.textContent=AC?AC.state:'not started';
+        setTimeout(()=>{ if(wb)wb.textContent='Wake audio'; },3200);
+      });
+    },160);
+  };
 }
 function wireHapTest(){
   const b=document.getElementById('hapTest');
