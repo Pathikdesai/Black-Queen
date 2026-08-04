@@ -128,7 +128,18 @@ color:rgba(23,32,47,.32)}
 .handwrap{border-top:1px solid var(--line);background:rgba(0,0,0,.22);padding:10px 0 12px}
 .handlabel{display:flex;justify-content:space-between;padding:0 14px 7px;font-size:11px;letter-spacing:.09em;
 text-transform:uppercase;color:var(--muted)}
-.hand{display:flex;gap:5px;overflow-x:auto;padding:2px 14px 8px;scrollbar-width:none}
+.hand{display:flex;gap:5px;overflow-x:auto;padding:2px 14px 8px;scrollbar-width:none;
+ -webkit-overflow-scrolling:touch;scroll-behavior:auto;position:relative;
+ -webkit-mask-image:none;mask-image:none}
+.hand::-webkit-scrollbar{height:0}
+.hand.grab{cursor:grabbing;user-select:none}
+.handpan{position:relative}
+.handpan::before,.handpan::after{content:'';position:absolute;top:0;bottom:8px;width:28px;
+ pointer-events:none;opacity:0;transition:opacity .18s;z-index:3}
+.handpan::before{left:0;background:linear-gradient(90deg,#101828,rgba(16,24,40,0))}
+.handpan::after{right:0;background:linear-gradient(270deg,#101828,rgba(16,24,40,0))}
+.handpan.fl::before{opacity:1}
+.handpan.fr::after{opacity:1}
 .hand::-webkit-scrollbar{display:none}
 .hand .card{cursor:pointer;transition:transform .15s,opacity .15s}
 .hand .card.ok:active,.hand .card.ok:hover{transform:translateY(-9px)}
@@ -251,7 +262,17 @@ function ac(){
     return AC;
   }catch(e){return null}
 }
-document.addEventListener('pointerdown',()=>{if(!muted)ac();},{passive:true});
+document.addEventListener('pointerdown',()=>{
+  if(!muted)ac();
+  if(primed)return; primed=true;
+  Object.values(audioCache).forEach(a=>{
+    try{ const v=a.volume; a.volume=0;
+      const q=a.play();
+      if(q&&q.then)q.then(()=>{ a.pause(); a.currentTime=0; a.volume=v; }).catch(()=>{ a.volume=v; });
+      else { a.pause(); a.currentTime=0; a.volume=v; }
+    }catch(e){}
+  });
+},{passive:true});
 function env(g,t,a,d,peak){
   g.gain.setValueAtTime(0.0001,t);
   g.gain.exponentialRampToValueAtTime(peak,t+a);
@@ -298,19 +319,26 @@ const SFX={
 /* ============ CUSTOM SOUND PACK ============
    Drop mp3 files in public/sounds/ and describe them in public/sounds/rules.json.
    Nothing here is required: if the folder is missing the game runs exactly as before. */
-let PACK=[], packReady=false, packFired={};
+let PACK=[], packReady=false, packFired={}, primed=false;
+const packStatus={ rules:null, files:{}, json:'loading' };
 const audioCache={};
 function loadPack(){
   fetch('sounds/rules.json',{cache:'no-cache'})
-    .then(r=>r.ok?r.json():null)
+    .then(r=>{ packStatus.json=r.ok?'ok':('http '+r.status); return r.ok?r.json():null; })
     .then(j=>{ if(!Array.isArray(j))return;
-      PACK=j.filter(r=>r&&r.when&&r.sound); packReady=true;
-      PACK.forEach(r=>{ try{ const a=new Audio('sounds/'+r.sound); a.preload='auto';
+      PACK=j.filter(r=>r&&r.when&&r.sound); packReady=true; packStatus.rules=PACK.length;
+      PACK.forEach(r=>{ try{
+        if(audioCache[r.sound])return;
+        const a=new Audio('sounds/'+r.sound); a.preload='auto';
         a.volume=typeof r.volume==='number'?Math.max(0,Math.min(1,r.volume)):0.9;
-        audioCache[r.sound]=a; }catch(e){} });
+        packStatus.files[r.sound]='loading';
+        a.addEventListener('canplaythrough',()=>{packStatus.files[r.sound]='ok';},{once:true});
+        a.addEventListener('error',()=>{packStatus.files[r.sound]='missing';},{once:true});
+        audioCache[r.sound]=a;
+      }catch(e){ packStatus.files[r.sound]='error'; } });
       console.log('sound pack loaded:',PACK.length,'rules');
     })
-    .catch(()=>{});
+    .catch(e=>{ packStatus.json='failed'; });
 }
 const norm=x=>String(x==null?'':x).trim().toLowerCase();
 function namesIn(d){
@@ -348,8 +376,10 @@ function ruleMatches(r,e){
 }
 function packPlay(r){
   if(muted)return;
-  const a=audioCache[r.sound]; if(!a)return;
-  try{ a.currentTime=0; const q=a.play(); if(q&&q.catch)q.catch(()=>{}); }catch(e){}
+  const a=audioCache[r.sound];
+  if(!a){ console.warn('sound pack: no audio for',r.sound); return; }
+  try{ a.currentTime=0; const q=a.play();
+    if(q&&q.catch)q.catch(e=>console.warn('sound pack: blocked or missing',r.sound,e&&e.name)); }catch(e){}
   if(r.text)flash(r.text);
   if(r.buzz)buzz([18,60,18]);
 }
@@ -365,6 +395,47 @@ function runPack(evts){
       packPlay(r);
     });
   });
+}
+function wireHand(el){
+  if(!el)return;
+  // put the view back where it was before the re-render
+  el.scrollLeft=handScroll;
+  const maxLeft=()=>el.scrollWidth-el.clientWidth;
+  const wrap=el.parentElement;
+  const fades=()=>{
+    if(!wrap)return;
+    wrap.classList.toggle('fl',el.scrollLeft>4);
+    wrap.classList.toggle('fr',el.scrollLeft<maxLeft()-4);
+  };
+  el.addEventListener('scroll',()=>{ handScroll=el.scrollLeft; fades(); },{passive:true});
+  // a plain wheel is vertical, so send it sideways instead
+  el.addEventListener('wheel',e=>{
+    if(maxLeft()<=0)return;
+    const dx=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
+    if(!dx)return;
+    const before=el.scrollLeft;
+    el.scrollLeft=Math.max(0,Math.min(maxLeft(),before+dx));
+    if(el.scrollLeft!==before)e.preventDefault();
+  },{passive:false});
+  // click and drag to pan, without swallowing a real click on a card
+  let down=false,sx=0,sl=0,moved=0;
+  el.addEventListener('mousedown',e=>{
+    if(e.button!==0||maxLeft()<=0)return;
+    down=true; moved=0; sx=e.clientX; sl=el.scrollLeft; el.classList.add('grab');
+  });
+  window.addEventListener('mousemove',e=>{
+    if(!down)return;
+    const d=e.clientX-sx; moved=Math.max(moved,Math.abs(d));
+    if(moved>3){ el.scrollLeft=Math.max(0,Math.min(maxLeft(),sl-d)); e.preventDefault(); }
+  });
+  window.addEventListener('mouseup',()=>{
+    if(!down)return;
+    down=false; el.classList.remove('grab');
+    // a drag should not also play the card it started on
+    if(moved>6){ el.classList.add('dragged'); setTimeout(()=>el.classList.remove('dragged'),0); }
+  });
+  el.addEventListener('click',e=>{ if(el.classList.contains('dragged')){ e.stopPropagation(); e.preventDefault(); } },true);
+  fades();
 }
 let flashT=null;
 function flash(msg){
@@ -596,12 +667,20 @@ function renderLobby(R){
   document.getElementById('rl').onclick=showRules;
   document.getElementById('lv').onclick=leave;
   document.getElementById('ch').onclick=()=>chatOpen?closeChat():openChat();
-  document.getElementById('mu').onclick=toggleMute;
+  const mu=document.getElementById('mu');
+  mu.onclick=toggleMute;
+  let muT=null;
+  mu.addEventListener('touchstart',()=>{ muT=setTimeout(()=>{muT=null;soundDiag();},650); },{passive:true});
+  ['touchend','touchmove','touchcancel'].forEach(ev=>mu.addEventListener(ev,()=>{if(muT){clearTimeout(muT);muT=null;}},{passive:true}));
+  mu.oncontextmenu=e=>{e.preventDefault();soundDiag();};
   [...R.querySelectorAll('[data-sz]')].forEach(b=>b.onclick=()=>send({t:'size',size:+b.dataset.sz}));
   if(document.getElementById('go'))document.getElementById('go').onclick=()=>send({t:'start'});
 }
 
+let handScroll=0;
 function renderGame(R){
+  const prevHand=R.querySelector('.hand');
+  if(prevHand)handScroll=prevHand.scrollLeft;
   const me=V.you, team=new Set(V.team);
   let info='';
   if(V.trump)info+=`<span class="trumpbadge" style="color:${SUITCOL[V.trump]};border-color:${SUITCOL[V.trump]}66"><b style="font-size:15px">${SYM[V.trump]}</b> trump</span>`;
@@ -647,13 +726,19 @@ function renderGame(R){
     <div class="table"><div class="trickarea">${trick}</div></div>
     <div class="handwrap"><div class="handlabel"><span>Your hand</span>
       <span>${V.hand.length?V.hand.reduce((a,c)=>a+ptsOf(c),0)+' pts in hand':''}</span></div>
-      <div class="hand">${hand}</div></div>
+      <div class="handpan"><div class="hand">${hand}</div></div></div>
     <div class="panel" id="panel"></div>
     <div class="log">${V.log.map(l=>`<div>${l}</div>`).join('')}</div>`;
   document.getElementById('rl').onclick=showRules;
   document.getElementById('lv').onclick=leave;
   document.getElementById('ch').onclick=()=>chatOpen?closeChat():openChat();
-  document.getElementById('mu').onclick=toggleMute;
+  const mu=document.getElementById('mu');
+  mu.onclick=toggleMute;
+  let muT=null;
+  mu.addEventListener('touchstart',()=>{ muT=setTimeout(()=>{muT=null;soundDiag();},650); },{passive:true});
+  ['touchend','touchmove','touchcancel'].forEach(ev=>mu.addEventListener(ev,()=>{if(muT){clearTimeout(muT);muT=null;}},{passive:true}));
+  mu.oncontextmenu=e=>{e.preventDefault();soundDiag();};
+  wireHand(R.querySelector('.hand'));
   const hg=document.getElementById('hg');
   if(hg)hg.onclick=()=>{
     if(hg.disabled)return;
@@ -812,6 +897,27 @@ function leave(){
   closeChat(); seenChat=0; unread=0;
   if(ws){ws.onclose=null;ws.close();ws=null;}
   render();
+}
+function soundDiag(){
+  const S={ok:['#3E9B6E','loaded'],missing:['#D9484E','NOT FOUND'],loading:['#8B93A7','loading'],error:['#D9484E','error']};
+  const jl=packStatus.json==='ok'?'<span style="color:#3E9B6E">loaded</span>'
+    :`<span style="color:#D9484E">${esc(packStatus.json)}</span>`;
+  let rows='';
+  if(PACK.length){
+    const seen={};
+    PACK.forEach(r=>{ if(seen[r.sound])return; seen[r.sound]=1;
+      const st=S[packStatus.files[r.sound]]||S.loading;
+      rows+=`<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.07)">
+        <span style="font-family:monospace;font-size:11.5px">${esc(r.sound)}</span>
+        <span style="color:${st[0]};font-size:11px;white-space:nowrap">${st[1]}</span></div>`;
+    });
+  }
+  modal(`<h2>Sound pack</h2>
+    <p style="font-size:12.5px">rules.json &nbsp;${jl}<br>rules found &nbsp;<b>${packStatus.rules===null?'none':packStatus.rules}</b>
+    &nbsp;&middot;&nbsp; muted &nbsp;<b>${muted?'yes':'no'}</b>
+    &nbsp;&middot;&nbsp; primed &nbsp;<b>${primed?'yes':'no'}</b></p>
+    ${rows?`<div style="margin-top:10px">${rows}</div>`:'<p style="color:var(--muted);font-size:12.5px">No clips listed. If rules.json failed to load, check the file is at public/sounds/rules.json in all lowercase.</p>'}
+    <p style="color:var(--muted);font-size:11.5px;margin-top:12px">NOT FOUND means the filename in rules.json does not match a file in public/sounds. Names are case sensitive and the extension must match too, so kartik-smit.m4a will not answer to kartik-smit.mp3.</p>`);
 }
 function showRules(){
   modal(`<h2>Black Queen</h2>
