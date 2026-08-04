@@ -236,7 +236,7 @@ function doPlay(R, idx, cardId) {
 
   if (R.trick.length === R.n) {
     R.phase = 'resolve'; push(R);
-    arm(R, () => resolveTrick(R), TRICK_MS);
+    arm(R, () => resolveTrick(R), TRICK_MS, 'resolve');
   } else { push(R); tick(R); }
 }
 
@@ -317,7 +317,7 @@ function endDeal(R) {
   clearTimeout(R.slowTimer);
   R.phase = isLast ? 'gameover' : 'dealover';
   push(R);
-  if (!isLast) arm(R, () => { if (R.phase === 'dealover') startDeal(R); }, NEXT_MS);
+  if (!isLast) arm(R, () => { if (R.phase === 'dealover') startDeal(R); }, NEXT_MS, 'deal');
 }
 
 /* ========================= BOT BRAIN ========================= */
@@ -399,13 +399,37 @@ function botPlay(R, i) {
 /* ========================= TURN DRIVER ========================= */
 const AWAY_MS = +(process.env.AWAY_MS || 30000);
 const SLOW_MS = +(process.env.SLOW_MS || 15000);
+const LOBBY_GRACE_MS = +(process.env.LOBBY_GRACE_MS || 90000);
 const BOT_MS = +(process.env.BOT_MS || 900);
 const TRICK_MS = +(process.env.TRICK_MS || 2600);
 const NEXT_MS = +(process.env.NEXT_MS || 7000);
-function arm(R, fn, ms) { clearTimeout(R.timer); R.timer = setTimeout(() => { try { fn(); } catch (e) { console.error(e); } }, ms); }
+function arm(R, fn, ms, tag) {
+  clearTimeout(R.timer);
+  R.timerTag = tag || null;
+  R.timer = setTimeout(() => {
+    R.timerTag = null;
+    try { fn(); } catch (e) { console.error(e); }
+  }, ms);
+}
 
 function tick(R) {
-  clearTimeout(R.timer);
+  /* These two phases are driven by a pending timer rather than by a player.
+     tick used to clear that timer and then fall straight out of the bottom,
+     which froze the table forever if anyone reconnected while a completed
+     trick was still on the cloth. Re-arm instead, and only if the pending
+     timer is not already the right one, so repeated calls cannot keep
+     pushing the deadline back. */
+  if (R.phase === 'resolve') {
+    if (R.timerTag !== 'resolve') arm(R, () => resolveTrick(R), TRICK_MS, 'resolve');
+    return;
+  }
+  if (R.phase === 'dealover') {
+    if (R.timerTag !== 'deal' && R.dealNo < R.totalDeals) {
+      arm(R, () => { if (R.phase === 'dealover') startDeal(R); }, NEXT_MS, 'deal');
+    }
+    return;
+  }
+  clearTimeout(R.timer); R.timerTag = null;
   let idx = null, act = null;
   if (R.phase === 'bid') { idx = R.bidState.turn; act = () => botBid(R, idx); }
   else if (R.phase === 'declare') { idx = R.bidder; act = () => botDeclare(R, idx); }
@@ -518,9 +542,12 @@ wss.on('connection', ws => {
     if (!p) return;
     p.connected = false; p.ws = null;
     if (R.phase === 'lobby') {
-      R.players = R.players.filter(q => q !== p);
-      if (R.players.length === 0) { clearTimeout(R.timer); clearTimeout(R.slowTimer); rooms.delete(R.code); return; }
-      if (p.token === R.hostToken) R.hostToken = R.players[0].token;
+      /* Do NOT drop the seat straight away. A host waiting for friends to join
+         will have their phone lock the screen or lose signal, and instantly
+         losing the seat meant they came back as a nameless new player with no
+         host rights. Hold the seat, and only release it if they stay away. */
+      clearTimeout(p.dropTimer);
+      p.dropTimer = setTimeout(() => releaseSeat(R, p), LOBBY_GRACE_MS);
     }
     push(R); tick(R);
   });
@@ -544,6 +571,7 @@ function handle(ws, m) {
       const i = R.players.findIndex(q => q.token === m.token);
       if (i >= 0) {
         const p = R.players[i];
+        clearTimeout(p.dropTimer);
         if (p.ws && p.ws !== ws) try { p.ws.close(); } catch (e) { }
         p.ws = ws; p.connected = true; ws.room = R;
         send(ws, { t: 'seated', code: R.code, token: p.token, seat: i });
@@ -553,6 +581,20 @@ function handle(ws, m) {
     // Fallback for a player who lost their saved token: a new phone, a cleared
     // browser, a private tab. Let them reclaim their own seat by name, but only
     // if that seat is actually sitting empty, so nobody can bump a live player.
+    if (R.phase === 'lobby' && m.name) {
+      const want = String(m.name).trim().toLowerCase();
+      const i = R.players.findIndex(q => !q.bot && !q.connected && q.name.toLowerCase() === want);
+      if (i >= 0) {
+        const p = R.players[i];
+        const wasHost = p.token === R.hostToken;
+        clearTimeout(p.dropTimer);
+        if (p.ws && p.ws !== ws) try { p.ws.close(); } catch (e) { }
+        p.token = tok(); p.ws = ws; p.connected = true; ws.room = R;
+        if (wasHost) R.hostToken = p.token;
+        send(ws, { t: 'seated', code: R.code, token: p.token, seat: i });
+        push(R); return;
+      }
+    }
     if (R.phase !== 'lobby') {
       const want = cleanName(m.name).toLowerCase();
       if (want) {
@@ -626,6 +668,18 @@ function handle(ws, m) {
     R.players.forEach(p => p.score = 0);
     startGame(R); return;
   }
+}
+function releaseSeat(R, p) {
+  if (R.phase !== 'lobby' || p.connected) return;
+  const wasHost = p.token === R.hostToken;
+  R.players = R.players.filter(q => q !== p);
+  if (R.players.length === 0) { clearTimeout(R.timer); clearTimeout(R.slowTimer); rooms.delete(R.code); return; }
+  if (wasHost) {
+    const next = R.players.find(q => q.connected && !q.bot) || R.players[0];
+    R.hostToken = next.token;
+    say(R, `<b>${next.name}</b> is now hosting.`);
+  }
+  push(R);
 }
 function cleanName(n) {
   n = String(n || '').replace(/[<>&"']/g, '').trim().slice(0, 14);
