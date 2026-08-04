@@ -10,7 +10,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,600;6..96,700&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#0F1626;--felt:#182338;--felt2:#1F2C46;--brass:#C9992E;--brass-dim:#8A6A21;
---bone:#EFE7D6;--bone-dim:#C9C0AE;--crimson:#B8383D;--jade:#3E8F7C;--muted:#7C88A0;--line:rgba(201,153,46,.22)}
+--bone:#EFE7D6;--bone-dim:#C9C0AE;--crimson:#B8383D;--jade:#3E8F7C;--muted:#7C88A0;--line:rgba(201,153,46,.22);--fade:16,24,40;--surf:#1F2C46;--surf2:#141E33}
+body.baize{--ink:#062C1B;--felt:#0C5231;--felt2:#12703F;--brass:#E0AE3A;--brass-dim:#9A7823;
+--bone:#F4EEDF;--bone-dim:#D3D8CB;--crimson:#C4413F;--jade:#7FD8A6;--muted:#A6C4B0;
+--line:rgba(224,174,58,.30);--fade:6,44,27;--surf:#0E5A36;--surf2:#083F26}
+body.baize{background:radial-gradient(120% 80% at 50% -12%,#1B8A4F 0%,#0C5231 46%,#062C1B 100%)}
+body.baize .handwrap{background:rgba(0,0,0,.30)}
+body.baize .card{box-shadow:0 3px 10px rgba(0,0,0,.42)}
+body.baize .tm.oppside{background:rgba(0,0,0,.20);border-color:rgba(255,255,255,.13)}
+body.baize .seat{background:rgba(0,0,0,.20)}
+body.baize .log{color:#CFE3D6}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;height:100%}
 body{background:radial-gradient(120% 80% at 50% -10%,#24314C 0%,var(--felt) 45%,var(--ink) 100%);
@@ -56,7 +65,7 @@ background:rgba(255,255,255,.03);position:relative;transition:.2s}
  animation:cIn .28s ease both, cOut .4s ease 2.7s both}
 @keyframes cIn{from{opacity:0}to{opacity:1}}
 @keyframes cOut{to{opacity:0}}
-.contract .box{background:linear-gradient(165deg,#1F2C46,#141E33);border:1px solid var(--brass);
+.contract .box{background:linear-gradient(165deg,var(--surf),var(--surf2));border:1px solid var(--brass);
  border-radius:18px;padding:22px 26px 20px;text-align:center;min-width:236px;
  box-shadow:0 22px 60px rgba(0,0,0,.6);animation:cPop .42s cubic-bezier(.2,1.3,.4,1) both}
 @keyframes cPop{from{transform:scale(.8) translateY(16px)}to{transform:none}}
@@ -136,8 +145,8 @@ text-transform:uppercase;color:var(--muted)}
 .handpan{position:relative}
 .handpan::before,.handpan::after{content:'';position:absolute;top:0;bottom:8px;width:28px;
  pointer-events:none;opacity:0;transition:opacity .18s;z-index:3}
-.handpan::before{left:0;background:linear-gradient(90deg,#101828,rgba(16,24,40,0))}
-.handpan::after{right:0;background:linear-gradient(270deg,#101828,rgba(16,24,40,0))}
+.handpan::before{left:0;background:linear-gradient(90deg,rgb(var(--fade)),rgba(var(--fade),0))}
+.handpan::after{right:0;background:linear-gradient(270deg,rgb(var(--fade)),rgba(var(--fade),0))}
 .handpan.fl::before{opacity:1}
 .handpan.fr::after{opacity:1}
 .hand::-webkit-scrollbar{display:none}
@@ -262,9 +271,7 @@ function ac(){
     return AC;
   }catch(e){return null}
 }
-document.addEventListener('pointerdown',()=>{
-  if(!muted)ac();
-  if(primed)return; primed=true;
+function primeClips(){
   Object.values(audioCache).forEach(a=>{
     try{ const v=a.volume; a.volume=0;
       const q=a.play();
@@ -272,7 +279,32 @@ document.addEventListener('pointerdown',()=>{
       else { a.pause(); a.currentTime=0; a.volume=v; }
     }catch(e){}
   });
+}
+document.addEventListener('pointerdown',()=>{
+  if(!muted)ac();
+  if(primed)return; primed=true;
+  primeClips();
 },{passive:true});
+
+/* Leaving the app suspends the audio engine, and iOS in particular parks it in
+   an "interrupted" state that does not always clear by itself when you come
+   back. Waking it explicitly on return, and rearming the clips so the next tap
+   re-primes them, since a backgrounded element can come back stalled. */
+function wakeAudio(){
+  if(muted)return;
+  try{
+    if(AC && AC.state === 'closed'){ AC = null; ac(); }
+    else if(AC && (AC.state === 'suspended' || AC.state === 'interrupted')){
+      const q = AC.resume();
+      if(q && q.catch) q.catch(()=>{ primed = false; });
+    } else if(!AC){ ac(); }
+  }catch(e){ primed = false; }
+  Object.values(audioCache).forEach(a=>{ try{ if(a.readyState === 0) a.load(); }catch(e){} });
+  primed = false;   // next tap re-primes, which costs nothing if all is well
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) wakeAudio(); });
+window.addEventListener('pageshow',wakeAudio);
+window.addEventListener('focus',wakeAudio);
 function env(g,t,a,d,peak){
   g.gain.setValueAtTime(0.0001,t);
   g.gain.exponentialRampToValueAtTime(peak,t+a);
@@ -447,6 +479,19 @@ function wireHand(el){
   el.addEventListener('click',e=>{ if(el.classList.contains('dragged')){ e.stopPropagation(); e.preventDefault(); } },true);
   handFades();
 }
+/* Table cloth. Green baize is the default because it reads far better in
+   normal room light than the dark blue did, especially on smaller screens. */
+function tableTheme(){ return store.get('bq_table')||'baize'; }
+function applyTheme(){
+  const green=tableTheme()==='baize';
+  document.body.classList.toggle('baize',green);
+  const mt=document.querySelector('meta[name="theme-color"]');
+  if(mt)mt.setAttribute('content',green?'#062C1B':'#0F1626');
+}
+function toggleTheme(){
+  store.set('bq_table',tableTheme()==='baize'?'midnight':'baize');
+  applyTheme();
+}
 let flashT=null;
 function flash(msg){
   let el=document.getElementById('flashbar');
@@ -562,6 +607,7 @@ let ws=null, V=null, seat=null, myToken=store.get('bq_token'), myCode=store.get(
 let uiBid=MINBID, uiTrump=null, uiCalls=[], screen='home', pending=null;
 
 loadPack();
+if(document.body)applyTheme();else document.addEventListener('DOMContentLoaded',applyTheme);
 if(document.body)initSwitchHaptic();else document.addEventListener('DOMContentLoaded',initSwitchHaptic);
 function connect(then){
   const proto=location.protocol==='https:'?'wss':'ws';
@@ -591,7 +637,7 @@ function connect(then){
     }
     else if(m.t==='err'){ toast(m.msg); if(screen==='home')render(); }
   };
-  ws.onclose=()=>{ setTimeout(()=>{ if(myCode)connect(()=>send({t:'join',code:myCode,token:myToken})); },1500); };
+  ws.onclose=()=>{ setTimeout(()=>{ if(myCode)connect(()=>send({t:'join',code:myCode,token:myToken,name:store.get('bq_name')||''})); },1500); };
 }
 function send(o){ if(ws&&ws.readyState===1)ws.send(JSON.stringify(o)); }
 function toast(msg){
@@ -974,10 +1020,22 @@ function soundDiag(){
       iPhone switch tick &nbsp;${HAPTICS.sw?'<span style="color:#3E9B6E">available</span>':'<span style="color:#8B93A7">unavailable</span>'}<br>
       Last attempt &nbsp;<span style="color:var(--bone-dim)">${esc(HAPTICS.last)}</span>
     </p>
+    <h2 style="margin-top:18px">Audio engine</h2>
+    <p style="font-size:12.5px">
+      State &nbsp;${(()=>{const st=AC?AC.state:'not started';
+        const good=st==='running';
+        return `<span style="color:${good?'#3E9B6E':(st==='not started'?'#8B93A7':'#D9484E')}">${esc(st)}</span>`;})()}<br>
+      Clips primed &nbsp;<b>${primed?'yes':'not since last tap'}</b>
+    </p>
+    <button class="btn" id="wakeBtn" style="margin-top:4px">Wake audio</button>
     <button class="btn" id="hapTest" style="margin-top:4px">Test vibration</button>
     ${!HAPTICS.api?`<p style="color:var(--muted);font-size:11.5px;margin-top:10px">Safari on iPhone has never supported the Vibration API, so buzzes on game events cannot work there. Chrome and Firefox on iPhone use Apple's engine underneath, so they behave the same. Android phones do support it. If you are on Android and it still does nothing, check the phone is not in a silent mode that also suppresses vibration, and that your browser has not disabled it.</p>`:''}
     <p style="color:var(--muted);font-size:11.5px;margin-top:12px">NOT FOUND means the filename in rules.json does not match a file in public/sounds. Names are case sensitive and the extension must match too, so kartik-smit.m4a will not answer to kartik-smit.mp3.</p>`);
   wireHapTest();
+  const wb=document.getElementById('wakeBtn');
+  if(wb)wb.onclick=()=>{ ac(); wakeAudio(); primed=true; primeClips();
+    wb.textContent='Engine: '+(AC?AC.state:'not started');
+    setTimeout(()=>{ if(wb)wb.textContent='Wake audio'; },2200); };
 }
 function wireHapTest(){
   const b=document.getElementById('hapTest');
@@ -988,6 +1046,13 @@ function wireHapTest(){
     setTimeout(()=>{ if(b)b.textContent='Test vibration'; },2200);
   };
 }
+function wireTheme(){
+  const b=document.getElementById('thBtn'), n=document.getElementById('thNext');
+  if(!b)return;
+  const label=()=>{ if(n)n.textContent=tableTheme()==='baize'?'midnight':'green baize'; };
+  label();
+  b.onclick=()=>{ toggleTheme(); label(); };
+}
 function showRules(){
   modal(`<h2>Black Queen</h2>
 <p><b>The deck.</b> Two packs with all 2s and 3s pulled out, and the 4s from one pack only. 84 cards, so 14 each for six players or 12 each for seven.</p>
@@ -996,11 +1061,16 @@ function showRules(){
 <p><b>The contract.</b> The bidder names trump and calls two cards. The first player to lay each called card joins the bidder's team, so three against three at six-handed and three against four at seven-handed. The bidder may call a card he holds a copy of. If he lays that copy himself, whoever holds the second copy is the partner. If one player happens to lay both called cards, he is the sole partner and the bidder plays two against the rest.</p>
 <p><b>Play.</b> Follow the led suit if you can, otherwise play anything including trump. Highest trump takes the trick, or the highest card of the led suit if no trump appears. Identical cards tie in favour of whoever played first. The bidder leads the opening trick.</p>
 <p><b>Scoring.</b> Make the bid and every player on the bidding team adds what the team actually collected, so bidding 120 and taking 175 pays 175. Fall short and every opponent adds the bid instead. In the final round only, a failed contract pays the opponents what they actually collected.</p>
-<p><b>Length.</b> Nine rounds at six-handed, ten at seven-handed. Highest personal total wins.</p>`);
+<p><b>Length.</b> Nine rounds at six-handed, ten at seven-handed. Highest personal total wins.</p>
+<h2 style="margin-top:18px">Table cloth</h2>
+<p style="font-size:12.5px;color:var(--muted)">Green baize reads more clearly in normal light. Midnight is the darker original.</p>
+<button class="btn" id="thBtn" style="margin-top:6px">Switch to <span id="thNext"></span></button>
+`);
+  wireTheme();
 }
 
 /* boot: try to rejoin an existing table */
-if(myCode&&myToken){ connect(()=>send({t:'join',code:myCode,token:myToken})); }
+if(myCode&&myToken){ connect(()=>send({t:'join',code:myCode,token:myToken,name:store.get('bq_name')||''})); }
 render();
 </script>
 </body>
