@@ -30,10 +30,10 @@ color:var(--bone);font-family:'Archivo',system-ui,sans-serif;font-size:15px;over
 h1,h2,h3{font-family:'Bodoni Moda',Georgia,serif;font-weight:600}
 .wrap{max-width:560px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;
 padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
-.ribbon{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);
+.ribbon{display:flex;align-items:center;flex-wrap:wrap;gap:7px 9px;padding:9px 12px;border-bottom:1px solid var(--line);
 background:linear-gradient(180deg,rgba(201,153,46,.10),transparent);position:sticky;top:0;z-index:20;backdrop-filter:blur(6px)}
 .ribbon .deal{font-family:'Bodoni Moda',serif;font-size:13px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase}
-.spacer{flex:1}
+.spacer{flex:1 1 0;min-width:0}
 .chipline{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--bone-dim)}
 .trumpbadge{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--brass);border-radius:999px;
 padding:2px 9px;font-weight:600;color:var(--brass);font-size:12px}
@@ -838,7 +838,7 @@ function renderGame(R){
     <span class="spacer"></span><span class="chipline">${info}</span>
     <button class="iconbtn rel" id="ch">&#128172;${unread?`<span class="badge">${unread>9?'9+':unread}</span>`:''}</button>
     <button class="iconbtn" id="mu">${muted?'&#128263;':'&#128266;'}</button>
-    <button class="iconbtn hagga" id="hg">Hagga</button><button class="iconbtn" id="rl">?</button><button class="iconbtn" id="lv">Exit</button></div>
+    <button class="iconbtn hagga" id="hg">Hagga</button><button class="iconbtn" id="mo" aria-label="More">&#8943;</button></div>
     <div class="seats">${seats}</div>
     ${teamsBar()}
     <div class="table"><div class="trickarea" style="--tn:${V.n||6}">${trick}</div></div>
@@ -847,8 +847,8 @@ function renderGame(R){
       <div class="handpan"><div class="hand">${hand}</div></div></div>
     <div class="panel" id="panel"></div>
     <div class="log">${V.log.map(l=>`<div>${l}</div>`).join('')}</div>`;
-  document.getElementById('rl').onclick=showRules;
-  document.getElementById('lv').onclick=leave;
+  const mo=document.getElementById('mo');
+  if(mo)mo.onclick=moreMenu;
   document.getElementById('ch').onclick=()=>chatOpen?closeChat():openChat();
   const mu=document.getElementById('mu');
   mu.onclick=toggleMute;
@@ -1078,6 +1078,25 @@ function wireTheme(){
   const label=()=>{ if(n)n.textContent=tableTheme()==='baize'?'midnight':'green baize'; };
   label();
   b.onclick=()=>{ toggleTheme(); label(); };
+}
+function moreMenu(){
+  const d=modal(`<h2>Table</h2>
+    <div class="row" style="flex-direction:column;gap:8px;margin-top:10px">
+      <button class="btn block" data-go="rules">How to play</button>
+      <button class="btn ghost block" data-go="cloth">Table cloth: <span id="mmCloth"></span></button>
+      <button class="btn ghost block" data-go="sound">Sound and vibration</button>
+      <button class="btn quiet block" data-go="leave">Leave this table</button>
+    </div>`);
+  const lab=()=>{const e=d.querySelector('#mmCloth'); if(e)e.textContent=tableTheme()==='baize'?'green baize':'midnight';};
+  lab();
+  d.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{
+    const g=b.getAttribute('data-go');
+    if(g==='cloth'){ toggleTheme(); lab(); return; }
+    d.remove();
+    if(g==='rules')showRules();
+    else if(g==='sound')soundDiag();
+    else if(g==='leave')leave();
+  });
 }
 function showRules(){
   modal(`<h2>Black Queen</h2>
