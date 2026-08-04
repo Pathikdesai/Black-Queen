@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,600;6..96,700&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--ink:#0F1626;--felt:#182338;--felt2:#1F2C46;--brass:#C9992E;--brass-dim:#8A6A21;
+:root{--cw:56px;--ch:80px;--crank:20px;--cpip:19px;--cval:13px;--ink:#0F1626;--felt:#182338;--felt2:#1F2C46;--brass:#C9992E;--brass-dim:#8A6A21;
 --bone:#EFE7D6;--bone-dim:#C9C0AE;--crimson:#B8383D;--jade:#3E8F7C;--muted:#7C88A0;--line:rgba(201,153,46,.22);--fade:16,24,40;--surf:#1F2C46;--surf2:#141E33}
 body.baize{--ink:#062C1B;--felt:#0C5231;--felt2:#12703F;--brass:#E0AE3A;--brass-dim:#9A7823;
 --bone:#F4EEDF;--bone-dim:#D3D8CB;--crimson:#C4413F;--jade:#7FD8A6;--muted:#A6C4B0;
@@ -20,6 +20,9 @@ body.baize .card{box-shadow:0 3px 10px rgba(0,0,0,.42)}
 body.baize .tm.oppside{background:rgba(0,0,0,.20);border-color:rgba(255,255,255,.13)}
 body.baize .seat{background:rgba(0,0,0,.20)}
 body.baize .log{color:#CFE3D6}
+@media (max-width:360px){
+  :root{--cw:50px;--ch:72px;--crank:18px;--cpip:17px;--cval:12px}
+}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;height:100%}
 body{background:radial-gradient(120% 80% at 50% -10%,#24314C 0%,var(--felt) 45%,var(--ink) 100%);
@@ -111,17 +114,24 @@ background:rgba(255,255,255,.03);position:relative;transition:.2s}
 .tm.bidside .pt{color:var(--brass)}
 .tm.oppside .pt{color:var(--bone-dim)}
 .seat.tside{background:rgba(201,153,46,.11);border-color:rgba(201,153,46,.4)}
-.table{flex:1;display:flex;align-items:center;justify-content:center;padding:6px 12px 12px;min-height:190px}
-.trickarea{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-items:flex-end;min-height:104px}
+.table{flex:1;display:flex;align-items:center;justify-content:center;padding:6px 12px 12px;min-height:206px}
+.trickarea{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;align-items:flex-end;min-height:120px}
+/* A full trick has one card per seat and must never wrap, so the cards are
+   sized from the actual seat count and the width the phone really has. */
+.trickarea{--tn:6}
+.trickarea .card{
+ --cw:clamp(38px, calc((min(100vw,560px) - 30px - (var(--tn) - 1) * 7px) / var(--tn)), 54px);
+ --ch:calc(var(--cw)*1.43);
+ --crank:calc(var(--cw)*.37);--cpip:calc(var(--cw)*.35);--cval:calc(var(--cw)*.23)}
 .played{text-align:center;animation:drop .22s ease-out}
 @keyframes drop{from{transform:translateY(-14px) scale(.9);opacity:0}to{transform:none;opacity:1}}
 .played .who{font-size:10px;color:var(--muted);margin-top:3px}
-.card{width:46px;height:66px;border-radius:6px;background:linear-gradient(160deg,#FBF6EA,#E4DAC4);color:#17202F;
-position:relative;display:flex;flex-direction:column;justify-content:space-between;padding:4px 5px;
+.card{width:var(--cw);height:var(--ch);border-radius:7px;background:linear-gradient(160deg,#FBF6EA,#E4DAC4);color:#17202F;
+position:relative;display:flex;flex-direction:column;justify-content:space-between;padding:5px 6px;
 box-shadow:0 3px 8px rgba(0,0,0,.4);border:1px solid rgba(0,0,0,.15);font-family:'Bodoni Moda',Georgia,serif;
 user-select:none;flex:0 0 auto}
-.card .r{font-size:15px;font-weight:700;line-height:1}
-.card .p{font-size:15px;line-height:1;align-self:flex-end}
+.card .r{font-size:var(--crank);font-weight:700;line-height:1}
+.card .p{font-size:var(--cpip);line-height:1;align-self:flex-end}
 .card.su-S{color:#17202F}
 .card.su-H{color:#B8383D}
 .card.su-D{color:#1F63A8}
@@ -131,7 +141,7 @@ user-select:none;flex:0 0 auto}
 .card.tr::after{content:'';position:absolute;left:4px;right:4px;bottom:2px;height:2.5px;
 border-radius:2px;background:var(--brass)}
 .card.qs{background:linear-gradient(160deg,#EFE7D6,#CFC3A6);box-shadow:0 0 0 1.5px var(--brass),0 3px 10px rgba(0,0,0,.5)}
-.card .val{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:700;
+.card .val{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:var(--cval);font-weight:700;
 color:rgba(23,32,47,.32)}
 .card.qs .val{color:var(--brass-dim)}
 .handwrap{border-top:1px solid var(--line);background:rgba(0,0,0,.22);padding:10px 0 12px}
@@ -831,7 +841,7 @@ function renderGame(R){
     <button class="iconbtn hagga" id="hg">Hagga</button><button class="iconbtn" id="rl">?</button><button class="iconbtn" id="lv">Exit</button></div>
     <div class="seats">${seats}</div>
     ${teamsBar()}
-    <div class="table"><div class="trickarea">${trick}</div></div>
+    <div class="table"><div class="trickarea" style="--tn:${V.n||6}">${trick}</div></div>
     <div class="handwrap"><div class="handlabel"><span>Your hand</span>
       <span>${V.hand.length?V.hand.reduce((a,c)=>a+ptsOf(c),0)+' pts in hand':''}</span></div>
       <div class="handpan"><div class="hand">${hand}</div></div></div>
