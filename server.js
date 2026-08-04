@@ -254,26 +254,50 @@ function resolveTrick(R) {
   fx(R, 'trickwin', w, null, { who: R.players[w].name, pts, trick: R.trickNo });
   if (pts >= 20) fx(R, 'bigpot', null, '+' + pts + ' in one trick', { who: R.players[w].name, pts, trick: R.trickNo });
   R.leader = w; R.trick = []; R.lead = null; R.trickNo++;
-  if (R.trickNo > R.handSize) endDeal(R);
-  else { R.phase = 'play'; push(R); tick(R); }
+  if (R.trickNo > R.handSize) return endDeal(R);
+  if (deadContract(R)) {
+    const short = R.bidAmount - (TOTALPTS - oppPoints(R));
+    say(R, `<b>${R.players[R.bidder].name}</b> cannot reach ${R.bidAmount} any more, short by ${short} even with every remaining point. Deal ends here.`);
+    fx(R, 'deadcontract', null, 'Bid is out of reach',
+      { bidder: R.players[R.bidder].name, amount: R.bidAmount, short, trick: R.trickNo - 1 });
+    return endDeal(R);
+  }
+  R.phase = 'play'; push(R); tick(R);
 }
 
 function shownTeam(R) { return [...R.team].map(i => R.players[i].name); }
 function teamPoints(R) { let t = 0; R.team.forEach(i => t += R.players[i].won); return t; }
+function oppPoints(R) { let t = 0; for (let i = 0; i < R.n; i++) if (!R.team.has(i)) t += R.players[i].won; return t; }
+
+/* A deal is dead once the bidding side cannot reach the bid even by taking every
+   remaining point. Ending there changes nothing: a failed contract pays each
+   opponent the bid amount regardless of what was actually collected.
+   Two guards:
+   - never in the final round, where a failed contract pays actual points, so the
+     rest of the tricks genuinely still matter
+   - never before both called cards are down, because an unrevealed partner's
+     points are still sitting in the opposition column and would make the
+     bidding side look further behind than it is */
+function deadContract(R) {
+  if (R.dealNo >= R.totalDeals) return false;
+  if (!(R.calledDone[0] && R.calledDone[1])) return false;
+  return (TOTALPTS - oppPoints(R)) < R.bidAmount;
+}
 
 function endDeal(R) {
-  const tp = teamPoints(R), op = TOTALPTS - tp;
+  const tp = teamPoints(R), op = oppPoints(R);
+  const unplayed = TOTALPTS - tp - op;
   const made = tp >= R.bidAmount;
   const isLast = R.dealNo === R.totalDeals;
   const winners = [], losers = [];
   for (let i = 0; i < R.n; i++) (R.team.has(i) === made ? winners : losers).push(i);
   const award = made ? tp : (isLast ? op : R.bidAmount);
   winners.forEach(i => R.players[i].score += award);
-  R.result = { tp, op, made, isLast, award, winners, big: R.bigTrick, partnerAt: R.partnerAt,
+  R.result = { tp, op, made, isLast, award, winners, unplayed, early: unplayed > 0, big: R.bigTrick, partnerAt: R.partnerAt,
     cuts: Object.entries(R.cuts).map(([i, c]) => ({ i: +i, c })).sort((a, b) => b.c - a.c).slice(0, 1)[0] || null };
   say(R, made
     ? `<b>Contract made.</b> Team collected ${tp} against ${R.bidAmount}. <span class="hi">+${award}</span> each to ${winners.map(i => R.players[i].name).join(', ')}.`
-    : `<b>Contract broken.</b> Team collected only ${tp} of ${R.bidAmount}. <span class="hi">+${award}</span> each to ${winners.map(i => R.players[i].name).join(', ')}.`);
+    : `<b>Contract broken.</b> Team collected only ${tp} of ${R.bidAmount}.${unplayed > 0 ? ` The bid was already out of reach, so the last ${R.handSize - R.trickNo + 1} trick${R.handSize - R.trickNo + 1 === 1 ? '' : 's'} were not played.` : ''} <span class="hi">+${award}</span> each to ${winners.map(i => R.players[i].name).join(', ')}.`);
   const rd = { bidder: R.players[R.bidder].name, amount: R.bidAmount, made, tp, op,
     team: shownTeam(R), winners: winners.map(i => R.players[i].name) };
   for (let i = 0; i < R.n; i++) fx(R, winners.includes(i) ? 'made' : 'broken', i, null, rd);
@@ -525,7 +549,32 @@ function handle(ws, m) {
         push(R); tick(R); return;
       }
     }
-    if (R.phase !== 'lobby') return send(ws, { t: 'err', msg: 'That game has already started.' });
+    // Fallback for a player who lost their saved token: a new phone, a cleared
+    // browser, a private tab. Let them reclaim their own seat by name, but only
+    // if that seat is actually sitting empty, so nobody can bump a live player.
+    if (R.phase !== 'lobby') {
+      const want = cleanName(m.name).toLowerCase();
+      if (want) {
+        const i = R.players.findIndex(q => !q.bot && !q.connected && q.name.toLowerCase() === want);
+        if (i >= 0) {
+          const p = R.players[i];
+          if (p.ws && p.ws !== ws) try { p.ws.close(); } catch (e) { }
+          p.token = tok(); p.ws = ws; p.connected = true; ws.room = R;
+          send(ws, { t: 'seated', code: R.code, token: p.token, seat: i });
+          say(R, `<b>${p.name}</b> is back at the table.`);
+          push(R); tick(R); return;
+        }
+        const live = R.players.findIndex(q => !q.bot && q.connected && q.name.toLowerCase() === want);
+        if (live >= 0) return send(ws, { t: 'err', msg: 'Someone is already playing as ' + R.players[live].name + ' on this table.' });
+      }
+      const away = R.players.filter(q => !q.bot && !q.connected).map(q => q.name);
+      return send(ws, {
+        t: 'err',
+        msg: away.length
+          ? 'That game has started. To take your seat back, join with the exact name you used: ' + away.join(', ') + '.'
+          : 'That game has already started and every seat is taken.'
+      });
+    }
     if (R.players.length >= R.size) return send(ws, { t: 'err', msg: 'That table is full.' });
     const p = { name: cleanName(m.name), token: tok(), bot: false, connected: true, ws, score: 0, hand: [], won: 0 };
     R.players.push(p); ws.room = R;
