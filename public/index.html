@@ -396,46 +396,56 @@ function runPack(evts){
     });
   });
 }
+/* The game screen is rebuilt on every state push, so this runs hundreds of
+   times per game. The window level drag listeners are therefore installed
+   exactly once and simply read whichever hand is current, otherwise they pile
+   up and the page crawls to a halt by the last round. */
+let handEl=null, dragging=false, dragX=0, dragFrom=0, dragMoved=0, handWired=false;
+function handMax(){ return handEl ? handEl.scrollWidth - handEl.clientWidth : 0; }
+function handFades(){
+  if(!handEl)return;
+  const w=handEl.parentElement; if(!w)return;
+  w.classList.toggle('fl',handEl.scrollLeft>4);
+  w.classList.toggle('fr',handEl.scrollLeft<handMax()-4);
+}
+function installHandListeners(){
+  if(handWired)return; handWired=true;
+  window.addEventListener('mousemove',e=>{
+    if(!dragging||!handEl)return;
+    const d=e.clientX-dragX;
+    dragMoved=Math.max(dragMoved,Math.abs(d));
+    if(dragMoved>3){ handEl.scrollLeft=Math.max(0,Math.min(handMax(),dragFrom-d)); e.preventDefault(); }
+  });
+  window.addEventListener('mouseup',()=>{
+    if(!dragging)return;
+    dragging=false;
+    if(handEl){
+      handEl.classList.remove('grab');
+      if(dragMoved>6){ handEl.classList.add('dragged'); setTimeout(()=>{ if(handEl)handEl.classList.remove('dragged'); },0); }
+    }
+  });
+}
 function wireHand(el){
+  handEl=el;
   if(!el)return;
-  // put the view back where it was before the re-render
+  installHandListeners();
   el.scrollLeft=handScroll;
-  const maxLeft=()=>el.scrollWidth-el.clientWidth;
-  const wrap=el.parentElement;
-  const fades=()=>{
-    if(!wrap)return;
-    wrap.classList.toggle('fl',el.scrollLeft>4);
-    wrap.classList.toggle('fr',el.scrollLeft<maxLeft()-4);
-  };
-  el.addEventListener('scroll',()=>{ handScroll=el.scrollLeft; fades(); },{passive:true});
-  // a plain wheel is vertical, so send it sideways instead
+  // these live on the element itself, so they die with it on the next rebuild
+  el.addEventListener('scroll',()=>{ handScroll=el.scrollLeft; handFades(); },{passive:true});
   el.addEventListener('wheel',e=>{
-    if(maxLeft()<=0)return;
+    const max=handMax(); if(max<=0)return;
     const dx=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
     if(!dx)return;
     const before=el.scrollLeft;
-    el.scrollLeft=Math.max(0,Math.min(maxLeft(),before+dx));
+    el.scrollLeft=Math.max(0,Math.min(max,before+dx));
     if(el.scrollLeft!==before)e.preventDefault();
   },{passive:false});
-  // click and drag to pan, without swallowing a real click on a card
-  let down=false,sx=0,sl=0,moved=0;
   el.addEventListener('mousedown',e=>{
-    if(e.button!==0||maxLeft()<=0)return;
-    down=true; moved=0; sx=e.clientX; sl=el.scrollLeft; el.classList.add('grab');
-  });
-  window.addEventListener('mousemove',e=>{
-    if(!down)return;
-    const d=e.clientX-sx; moved=Math.max(moved,Math.abs(d));
-    if(moved>3){ el.scrollLeft=Math.max(0,Math.min(maxLeft(),sl-d)); e.preventDefault(); }
-  });
-  window.addEventListener('mouseup',()=>{
-    if(!down)return;
-    down=false; el.classList.remove('grab');
-    // a drag should not also play the card it started on
-    if(moved>6){ el.classList.add('dragged'); setTimeout(()=>el.classList.remove('dragged'),0); }
+    if(e.button!==0||handMax()<=0)return;
+    dragging=true; dragMoved=0; dragX=e.clientX; dragFrom=el.scrollLeft; el.classList.add('grab');
   });
   el.addEventListener('click',e=>{ if(el.classList.contains('dragged')){ e.stopPropagation(); e.preventDefault(); } },true);
-  fades();
+  handFades();
 }
 let flashT=null;
 function flash(msg){
@@ -908,7 +918,7 @@ function renderPanel(){
       ${r.early?`<p style="margin-top:10px;color:var(--muted);font-size:12px">Both called cards were already down, so the sides above are final. The deal stopped because ${esc(V.seats[V.bidder].name)} could not reach ${V.bidAmount} even by taking every remaining point.</p>`:''}
       <p style="margin-top:11px">${r.isLast?'Final round, so scoring is at actual. ':''}<b style="color:var(--brass)">+${r.award}</b> each to ${r.winners.map(i=>esc(V.seats[i].name)).join(', ')}.</p>
       ${V.phase==='gameover'
-        ? `<div class="row">${V.you===0?'<button class="btn wide" id="ag">Play another game</button>':''}<button class="btn quiet wide" id="fin">Final table</button></div>`
+        ? `<div class="row">${V.isHost?'<button class="btn wide" id="ag">Play another game</button>':''}<button class="btn quiet wide" id="fin">Final table</button></div>`
         : `<div class="row"><button class="btn wide" id="nx">Next round</button></div><div class="hint" style="margin-top:8px">Deals automatically in a few seconds.</div>`}`;
     if(document.getElementById('nx'))document.getElementById('nx').onclick=()=>send({t:'next'});
     if(document.getElementById('ag'))document.getElementById('ag').onclick=()=>send({t:'again'});
