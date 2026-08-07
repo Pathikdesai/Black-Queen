@@ -675,6 +675,10 @@ wss.on('connection', ws => {
 });
 
 function handle(ws, m) {
+  /* Answered before anything else and without touching the room. A phone coming
+     back from another app uses this to find out whether its socket is still
+     really there, so it has to work whether or not the sender is seated. */
+  if (m.t === 'ping') return send(ws, { t: 'pong' });
   if (m.t === 'create') {
     /* A socket gets one table. Without this, repeated create messages left the
        earlier rooms holding a player still marked connected, which the reaper

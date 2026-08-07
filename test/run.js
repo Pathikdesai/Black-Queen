@@ -229,6 +229,29 @@ async function roomHygiene() {
   await c.close(); await d.close(); await e.close();
 }
 
+async function pingPong() {
+  console.log('\nchallenging a socket that may be dead');
+  const c = client();
+  await c.open();
+  let pongs = 0;
+  c.ws.on('message', raw => { if (JSON.parse(raw).t === 'pong') pongs++; });
+  /* A phone coming back from another app pings to find out whether its socket
+     is still real. It has to be answered whether or not that phone is seated,
+     and it must not disturb the table. */
+  c.send({ t: 'ping' });
+  await until(() => pongs > 0, 3000, 'a pong before being seated');
+  ok('a ping is answered before you even have a seat', pongs > 0, '');
+  c.send({ t: 'create', name: 'Pinger', size: 6 });
+  await until(() => c.code, 3000, 'a table');
+  const seenBefore = c.states, was = pongs;
+  c.send({ t: 'ping' });
+  await until(() => pongs > was, 3000, 'a pong at the table');
+  ok('and answered once you are at one', pongs > was, '');
+  await sleep(200);
+  eq('a ping does not stir up the table', c.states, seenBefore);
+  await c.close();
+}
+
 async function reconnect() {
   console.log('\nlosing a phone mid-game');
   const c = client();
@@ -299,6 +322,7 @@ async function lastTrickAndHost() {
     await turnClock();
     await chatIds();
     await roomHygiene();
+    await pingPong();
     await reconnect();
     await lastTrickAndHost();
   } catch (e) {

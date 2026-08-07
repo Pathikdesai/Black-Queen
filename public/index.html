@@ -53,9 +53,13 @@ font-size:12px;font-family:inherit;cursor:pointer}
 background:rgba(255,255,255,.03);position:relative;transition:.2s}
 .seat.turn{border-color:var(--brass);background:rgba(201,153,46,.13);box-shadow:0 0 0 1px rgba(201,153,46,.25)}
 .seat.out{opacity:.45}
-.seat .nm{font-size:12px;font-weight:600;white-space:nowrap;color:var(--bone-dim)}
+/* The card count and the clock sit on top of these two lines, so each reserves
+   the room they need. A seat is sized by its widest line, so the padding grows
+   the seat rather than squashing anything: a long name pushes the box out
+   instead of running underneath the number. */
+.seat .nm{font-size:12px;font-weight:600;white-space:nowrap;color:var(--bone-dim);padding-right:20px}
 .seat.you .nm{color:var(--bone)}
-.seat .sc{font-family:'Bodoni Moda',serif;font-size:19px;line-height:1.1;color:var(--bone)}
+.seat .sc{font-family:'Bodoni Moda',serif;font-size:19px;line-height:1.1;color:var(--bone);padding-right:28px}
 .seat .tag{font-size:9px;letter-spacing:.09em;text-transform:uppercase;margin-top:2px;min-height:12px}
 .tag.bid{color:var(--brass)}.tag.mate{color:var(--jade)}.tag.dim{color:var(--muted)}
 .seat .cnt{position:absolute;top:6px;right:7px;font-size:10px;color:var(--muted)}
@@ -266,6 +270,13 @@ background:rgba(255,255,255,.05);color:var(--bone);font-family:inherit;font-size
 .badge{position:absolute;top:-5px;right:-5px;background:var(--crimson);color:#fff;border-radius:999px;
 min-width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;padding:0 3px;font-weight:700}
 .iconbtn.rel{position:relative}
+/* Shown while the socket is being re-established, so a phone coming back from
+   another app looks busy rather than frozen. */
+.linkbar{position:fixed;left:50%;transform:translateX(-50%);top:0;z-index:70;
+ background:var(--brass);color:#1A1206;font-size:11.5px;font-weight:600;letter-spacing:.06em;
+ text-transform:uppercase;padding:4px 14px;border-radius:0 0 9px 9px;
+ box-shadow:0 4px 14px rgba(0,0,0,.45);pointer-events:none;
+ margin-top:env(safe-area-inset-top,0px)}
 .toast.chat{background:var(--felt2);border:1px solid var(--line);color:var(--bone);max-width:82%}
 .toast.chat b{color:var(--brass)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:var(--crimson);color:#fff;
@@ -729,12 +740,62 @@ setInterval(tickClock,250);
 loadPack();
 if(document.body)applyTheme();else document.addEventListener('DOMContentLoaded',applyTheme);
 if(document.body)initSwitchHaptic();else document.addEventListener('DOMContentLoaded',initSwitchHaptic);
+/* ---------- staying connected across an app switch ----------
+   Leaving the game and coming back is the normal way to use a phone, and it
+   used to be the way to get stuck. Two things go wrong.
+
+   The obvious one is that the socket is closed while the app is in the
+   background. onclose fires on the way back and the retry below handles it.
+
+   The nastier one is a socket that is dead without anyone saying so. The phone
+   loses the network in the reader's pocket, nothing is delivered, and the
+   browser still reports the socket as open. Nothing arrives, nothing is sent,
+   and the table sits there looking frozen forever. So on every return to the
+   app the link is challenged: send a ping, and if nothing at all comes back
+   shortly, throw the socket away and build a new one. */
+let lastRx=0, reconnT=null, linkEl=null;
+function linkState(up){
+  if(up){ if(linkEl){ linkEl.remove(); linkEl=null; } return; }
+  if(linkEl)return;
+  linkEl=document.createElement('div');
+  linkEl.className='linkbar';
+  linkEl.textContent='Reconnecting';
+  document.body.appendChild(linkEl);
+}
+function scheduleReconnect(delay){
+  if(!myCode)return;
+  clearTimeout(reconnT);
+  linkState(false);
+  reconnT=setTimeout(()=>{
+    reconnT=null;
+    if(ws&&ws.readyState===1)return;          // something else already fixed it
+    if(ws){ ws.onclose=null; try{ws.close();}catch(e){} }
+    autoRejoin=true;
+    connect(()=>send({t:'join',code:myCode,token:myToken,name:store.get('bq_name')||''}));
+  },delay);
+}
+function checkLink(){
+  if(!myCode)return;
+  if(!ws||ws.readyState!==1){ scheduleReconnect(0); return; }
+  const mark=lastRx;
+  send({t:'ping'});
+  // the server answers immediately, so silence here means the socket is a corpse
+  setTimeout(()=>{ if(lastRx===mark&&ws&&ws.readyState===1) scheduleReconnect(0); },3500);
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkLink(); });
+window.addEventListener('pageshow',checkLink);
+window.addEventListener('focus',checkLink);
+window.addEventListener('online',checkLink);
+
 function connect(then){
   const proto=location.protocol==='https:'?'wss':'ws';
   ws=new WebSocket(proto+'://'+location.host);
-  ws.onopen=()=>{ if(then)then(); };
+  ws.onopen=()=>{ lastRx=Date.now(); if(then)then(); };
   ws.onmessage=e=>{
+    lastRx=Date.now();
+    linkState(true);
     const m=JSON.parse(e.data);
+    if(m.t==='pong')return;
     if(m.t==='seated'){ seat=m.seat; myToken=m.token; myCode=m.code;
       store.set('bq_token',myToken); store.set('bq_code',myCode); }
     else if(m.t==='state'){
@@ -775,6 +836,7 @@ function connect(then){
         autoRejoin=false;
         store.del('bq_token'); store.del('bq_code');
         myToken=null; myCode=null; seat=null;
+        clearTimeout(reconnT); reconnT=null; linkState(true);
         if(ws){ ws.onclose=null; try{ws.close();}catch(e){} ws=null; }
         screen='home'; render();
         return;
@@ -782,7 +844,7 @@ function connect(then){
       toast(m.msg); if(screen==='home')render();
     }
   };
-  ws.onclose=()=>{ setTimeout(()=>{ if(myCode){ autoRejoin=true; connect(()=>send({t:'join',code:myCode,token:myToken,name:store.get('bq_name')||''})); } },1500); };
+  ws.onclose=()=>{ scheduleReconnect(1500); };
 }
 function send(o){ if(ws&&ws.readyState===1)ws.send(JSON.stringify(o)); }
 function toast(msg){
@@ -1197,6 +1259,7 @@ function leave(){
   myToken=null; myCode=null; V=null; screen='home';
   closeChat(); lastChatId=null; unread=0;
   clockAt=null; clockSeat=null; pickId=null;
+  clearTimeout(reconnT); reconnT=null; linkState(true);
   // hold the socket in a local: the close is deferred so the leave actually goes out
   const sock=ws;
   if(sock){sock.onclose=null;setTimeout(()=>{try{sock.close();}catch(e){}},60);}

@@ -100,6 +100,8 @@ Phones need one tap anywhere before audio can start. That is a browser rule, not
 
 **Dropped connections are handled.** If a phone locks or loses signal, that seat is held. Reopen the link and you are back in the same seat with the same cards and scores. While you are away the table does not freeze: after 30 seconds a bot plays your turns so the round keeps moving.
 
+**Switching to another app and back is safe.** Every time the game comes back to the foreground it checks that its connection is genuinely alive, rather than trusting the browser's word for it. A phone that lost the network in your pocket looks connected but is not, which used to leave the game sitting there frozen; now the dead connection is thrown away and a new one made, usually before you have finished looking at the screen. A brass **Reconnecting** strip across the top means it is working on it. Meanwhile the table carries on without you, so you come back to the current state rather than a stale one.
+
 **Tables clean themselves up.** A room with nobody connected is deleted after 30 minutes.
 
 ---
