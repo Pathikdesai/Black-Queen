@@ -61,6 +61,20 @@ function unitTests() {
   eq('a shuffle keeps every id', new Set(b.map(x => x.id)).size, 84);
   ok('a shuffle actually moves cards', a.some((x, i) => x.id !== b[i].id), '');
 
+  /* A static check, not a real one. Proving the sound pack stays quiet while it
+     primes needs a browser, and pulling in a headless browser to test it would
+     cost this project more than the bug did. What can be checked cheaply is
+     that the silencing has not gone back to `volume`, which iOS ignores
+     outright, and which is what made the whole pack blurt out on the first tap. */
+  console.log('\nthe sound pack stays quiet while it primes');
+  const client = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
+  const prime = client.slice(client.indexOf('function primeClips()'), client.indexOf('document.addEventListener(\'pointerdown\''));
+  ok('priming exists to be checked', prime.length > 40 && prime.length < 2000, prime.length + ' chars');
+  ok('it silences with muted, which iOS honours', /\.muted\s*=\s*true/.test(prime), '');
+  ok('and not with volume, which iOS ignores', !/\.volume\s*=\s*0/.test(prime), '');
+  ok('it unmutes again afterwards', /\.muted\s*=\s*false/.test(prime), '');
+  ok('and a clip wanted for real is spared the prime\'s pause', /_priming/.test(prime), '');
+
   console.log('\nsaving a table for the next boot');
   const R = G.createRoom(6);
   for (let i = 0; i < 6; i++) {
