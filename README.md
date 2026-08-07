@@ -12,6 +12,9 @@ The cards live on the server. Each phone only ever receives its own hand, so nob
 |---|---|
 | `server.js` | The referee. Deck, bidding, trick logic, scoring, bots, WebSocket rooms. |
 | `public/index.html` | Everything players see. One file, no build step. |
+| `public/manifest.webmanifest`, `public/icons/` | Lets phones add the game to the home screen. |
+| `test/run.js` | The test suite. `npm test`. |
+| `tools/make-icons.js` | Redraws the icons. Only needed if you change the artwork. |
 | `package.json` | Tells the host how to run it. |
 
 ---
@@ -61,7 +64,9 @@ You do **not** rebuild anything or ask anyone to reinstall.
 
 Everyone always loads the same page, so there is no such thing as one person being on an old version.
 
-**One caveat.** A redeploy restarts the server, which ends any game in progress. Deploy between games, not mid-round.
+**Before you push, run the tests.** `npm test` plays whole games against the real server and checks the things that are hard to spot by eye: that all 200 points are still accounted for, that a table cannot silently stop moving, that a seat comes back with the right cards after a phone drops. It takes about half a minute.
+
+**One caveat.** A redeploy on Render hands you a fresh machine, which ends any game in progress. Deploy between games, not mid-round. A plain restart or a crash is now survivable, see below.
 
 ---
 
@@ -73,7 +78,23 @@ Sound is synthesised in the browser, so there are no audio files to host and not
 
 Phones need one tap anywhere before audio can start. That is a browser rule, not a bug, and the first tap on the name screen handles it.
 
+## At the table
+
+**Nobody can stall the game.** Each turn has a clock. It stays hidden until the last twenty seconds, then counts down on that player's seat and turns red near the end. If it runs out, a card is played for them and the log says so. A phone that has locked or lost signal is given less time than someone who is present but has put the phone down.
+
+**The scorecard.** Under the `...` menu, and on every round summary. One row per round showing who bid what, whether they made it, and what each player took, with running totals underneath. It scrolls sideways at seven-handed.
+
+**The last trick.** The cards leave the cloth after a couple of seconds, which is not long enough if you looked away. `...` then **Last trick**, or the link under the table between tricks, brings back all six or seven cards with the winner marked.
+
+**Confirm each card.** Off by default. Turn it on under `...` and a tap only lifts a card clear of your hand; a second tap on the same card plays it. Worth it if you have ever thrown a queen away with your thumb.
+
+**Add it to your home screen.** Both phones offer this from the browser's share or menu button. It then opens full screen with its own icon, with no address bar taking up room.
+
 ## Things worth knowing
+
+**The bots count cards.** They track which cards have been played and who has failed to follow which suit, and use it to cash winners that can no longer be beaten, to avoid leading into a suit somebody is waiting to trump, and to throw away from their shortest suit. They only ever use what is visible at the table, so they are counting, not peeking. They make their contract about seven times in ten.
+
+**A restart no longer ends the game.** Tables in progress are written to disk when the server goes down and read back when it comes up. Everyone's phone reconnects on its own and lands in the same seat with the same cards. This covers a crash, a manual restart and the server running out of memory. It does not cover a Render redeploy, because that replaces the whole machine and the file goes with it.
 
 **The free plan sleeps.** After 15 minutes with nobody connected, Render puts the service to sleep. The next person to open the link waits about a minute for it to wake. Once a game is running, traffic keeps it awake. If that wait irritates people, Render's Starter plan removes it for roughly 600 rupees a month.
 
@@ -98,6 +119,27 @@ To speed up bot moves while testing:
 
 ```
 BOT_MS=200 TRICK_MS=400 npm start
+```
+
+Everything with a timer can be set the same way, in milliseconds:
+
+| Variable | Default | What it controls |
+|---|---|---|
+| `BOT_MS` | 900 | How long a bot pretends to think. |
+| `TRICK_MS` | 2600 | How long a completed trick stays on the cloth. |
+| `NEXT_MS` | 7000 | The pause between rounds. |
+| `TURN_MS` | 60000 | How long a player who is present gets before a card is played for them. |
+| `AWAY_MS` | 30000 | The same, for a seat whose phone has dropped. |
+| `SLOW_MS` | 15000 | When the "is thinking" nudge fires. |
+| `CHAT_MS` | 600 | Minimum gap between one player's chat messages. |
+| `LOBBY_GRACE_MS` | 90000 | How long a lobby seat is held for a dropped phone. |
+| `MAX_ROOMS` | 500 | Ceiling on tables open at once. |
+| `STATE_FILE` | `.rooms.json` | Where tables are saved when the server stops. |
+
+To run the tests:
+
+```
+npm test
 ```
 
 ---
