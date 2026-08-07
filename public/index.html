@@ -329,13 +329,32 @@ function ac(){
     return AC;
   }catch(e){return null}
 }
+/* Priming is starting every clip and stopping it again, so that a later play()
+   counts as something the player asked for rather than the page helping itself
+   to the speaker. It has to be inaudible while it happens.
+
+   It was using volume for that, which is fine on a desktop and useless on an
+   iPhone: Apple makes volume read only on iOS and quietly ignores writes, so
+   every clip in the sound pack was being primed at FULL volume and the whole
+   pack blurted out the moment the game started. muted is honoured everywhere,
+   so that is what silences it now.
+
+   The pause is guarded, because priming resolves asynchronously. If a clip is
+   genuinely wanted in the gap between play() and the promise settling, the
+   prime must not reach in afterwards and stop it. */
 function primeClips(){
   Object.values(audioCache).forEach(a=>{
-    try{ const v=a.volume; a.volume=0;
+    try{
+      a.muted=true;
+      a._priming=true;
+      const done=()=>{
+        if(a._priming){ try{ a.pause(); a.currentTime=0; }catch(e){} }
+        a._priming=false; a.muted=false;
+      };
       const q=a.play();
-      if(q&&q.then)q.then(()=>{ a.pause(); a.currentTime=0; a.volume=v; }).catch(()=>{ a.volume=v; });
-      else { a.pause(); a.currentTime=0; a.volume=v; }
-    }catch(e){}
+      if(q&&q.then)q.then(done).catch(()=>{ a._priming=false; a.muted=false; });
+      else done();
+    }catch(e){ try{ a._priming=false; a.muted=false; }catch(e2){} }
   });
 }
 document.addEventListener('pointerdown',()=>{
@@ -521,6 +540,8 @@ function packPlay(r){
   if(muted)return;
   const a=audioCache[r.sound];
   if(!a){ console.warn('sound pack: no audio for',r.sound); return; }
+  // this one is wanted for real, so a prime still in flight must keep its hands off
+  a._priming=false; a.muted=false;
   try{ a.currentTime=0; const q=a.play();
     if(q&&q.catch)q.catch(e=>console.warn('sound pack: blocked or missing',r.sound,e&&e.name)); }catch(e){}
   if(r.text)flash(r.text);
