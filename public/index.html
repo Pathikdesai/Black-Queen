@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0F1626">
 <title>Black Queen</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Black Queen">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,600;6..96,700&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -46,12 +53,26 @@ font-size:12px;font-family:inherit;cursor:pointer}
 background:rgba(255,255,255,.03);position:relative;transition:.2s}
 .seat.turn{border-color:var(--brass);background:rgba(201,153,46,.13);box-shadow:0 0 0 1px rgba(201,153,46,.25)}
 .seat.out{opacity:.45}
-.seat .nm{font-size:12px;font-weight:600;white-space:nowrap;color:var(--bone-dim)}
+/* The card count and the clock sit on top of these two lines, so each reserves
+   the room they need. A seat is sized by its widest line, so the padding grows
+   the seat rather than squashing anything: a long name pushes the box out
+   instead of running underneath the number. */
+.seat .nm{font-size:12px;font-weight:600;white-space:nowrap;color:var(--bone-dim);padding-right:20px}
 .seat.you .nm{color:var(--bone)}
-.seat .sc{font-family:'Bodoni Moda',serif;font-size:19px;line-height:1.1;color:var(--bone)}
+.seat .sc{font-family:'Bodoni Moda',serif;font-size:19px;line-height:1.1;color:var(--bone);padding-right:28px}
 .seat .tag{font-size:9px;letter-spacing:.09em;text-transform:uppercase;margin-top:2px;min-height:12px}
 .tag.bid{color:var(--brass)}.tag.mate{color:var(--jade)}.tag.dim{color:var(--muted)}
 .seat .cnt{position:absolute;top:6px;right:7px;font-size:10px;color:var(--muted)}
+/* Turn clock. Stays out of the way until the last twenty seconds, then counts
+   down, then goes red, so a table only sees it when somebody has actually
+   stalled rather than every single turn. */
+/* Sat beside the score rather than above the name: the score is short and the
+   space to its right is the only part of a seat that is reliably empty. */
+.seat .clk{position:absolute;top:27px;right:8px;font-size:10px;font-weight:700;color:var(--brass);
+ letter-spacing:.04em;opacity:0;transition:opacity .25s}
+.seat .clk.on{opacity:1}
+.seat .clk.urgent{color:var(--crimson);animation:clkPulse .9s ease-in-out infinite}
+@keyframes clkPulse{0%,100%{opacity:1}50%{opacity:.35}}
 .dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--jade);margin-right:4px;vertical-align:1px}
 .dot.off{background:var(--crimson)}
 @keyframes bannerIn{0%{opacity:0;transform:translateY(14px) scale(.86)}
@@ -137,6 +158,9 @@ user-select:none;flex:0 0 auto}
 .card.su-D{color:#1F63A8}
 .card.su-C{color:#26714A}
 .card.gap{margin-left:12px}
+/* Armed for play, waiting on a second tap. Lifted clear of the row so it reads
+   at a glance on a crowded hand. */
+.card.sel{transform:translateY(-13px);box-shadow:0 0 0 2px var(--brass),0 10px 22px rgba(0,0,0,.55);z-index:2}
 .card.tr{background:linear-gradient(160deg,#FFF7E2,#EEDFB6);border-color:rgba(201,153,46,.55)}
 .card.tr::after{content:'';position:absolute;left:4px;right:4px;bottom:2px;height:2.5px;
 border-radius:2px;background:var(--brass)}
@@ -246,12 +270,35 @@ background:rgba(255,255,255,.05);color:var(--bone);font-family:inherit;font-size
 .badge{position:absolute;top:-5px;right:-5px;background:var(--crimson);color:#fff;border-radius:999px;
 min-width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;padding:0 3px;font-weight:700}
 .iconbtn.rel{position:relative}
+/* Shown while the socket is being re-established, so a phone coming back from
+   another app looks busy rather than frozen. */
+.linkbar{position:fixed;left:50%;transform:translateX(-50%);top:0;z-index:70;
+ background:var(--brass);color:#1A1206;font-size:11.5px;font-weight:600;letter-spacing:.06em;
+ text-transform:uppercase;padding:4px 14px;border-radius:0 0 9px 9px;
+ box-shadow:0 4px 14px rgba(0,0,0,.45);pointer-events:none;
+ margin-top:env(safe-area-inset-top,0px)}
 .toast.chat{background:var(--felt2);border:1px solid var(--line);color:var(--bone);max-width:82%}
 .toast.chat b{color:var(--brass)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:var(--crimson);color:#fff;
 padding:10px 16px;border-radius:10px;font-size:13px;z-index:90;box-shadow:0 6px 18px rgba(0,0,0,.5)}
 .scoreline{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.07);font-size:14px}
 .scoreline .d{color:var(--jade);font-weight:600}
+/* Scorecard. Wide tables scroll inside their own box so the modal never does. */
+.cardscroll{overflow-x:auto;margin-top:10px;-webkit-overflow-scrolling:touch}
+table.sc{border-collapse:collapse;font-size:12px;width:100%;min-width:max-content}
+table.sc th,table.sc td{padding:5px 7px;text-align:right;white-space:nowrap;
+ border-bottom:1px solid rgba(255,255,255,.07)}
+table.sc th{color:var(--muted);font-weight:600;font-size:10px;letter-spacing:.07em;text-transform:uppercase}
+table.sc th:first-child,table.sc td:first-child{text-align:left;position:sticky;left:0;background:var(--felt2)}
+table.sc td.you{color:var(--jade)}
+table.sc tr.tot td{font-family:'Bodoni Moda',serif;font-size:15px;color:var(--brass);border-bottom:none;padding-top:8px}
+table.sc td.won{color:var(--brass)}
+table.sc .bd{color:var(--bone-dim);font-size:11px}
+.ltrick{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin-top:12px}
+.ltrick .played .who{font-size:10px;color:var(--muted);text-align:center;margin-top:3px}
+.ltrick .played.w .who{color:var(--jade);font-weight:600}
+.linkish{background:none;border:none;color:var(--brass);font:inherit;font-size:13px;
+ text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:4px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -665,20 +712,90 @@ function toggleMute(){
 }
 
 /* ---------- chat ---------- */
-let chatOpen=false, seenChat=0, unread=0, sheetEl=null;
+/* Tracked by message id, not by how many messages the server sent. The log is
+   trimmed to the last forty, so once a table got chatty the length stopped
+   growing and every later message counted as already seen. */
+let chatOpen=false, lastChatId=null, unread=0, sheetEl=null;
 
 let ws=null, V=null, seat=null, autoRejoin=false, myToken=store.get('bq_token'), myCode=store.get('bq_code');
 let uiBid=MINBID, uiTrump=null, uiCalls=[], screen='home', pending=null;
+let clockAt=null, clockSeat=null, pickId=null;
+
+/* Tap to arm, tap again to play. Off by default because the extra tap is a cost
+   on every single card, and only worth paying if you have actually thrown one
+   away by accident. */
+const confirmOn=()=>store.get('bq_confirm')==='1';
+const CLOCK_SHOW=20;
+function tickClock(){
+  const el=document.getElementById('tclk');
+  if(!el)return;
+  if(!clockAt){ el.textContent=''; el.className='clk'; return; }
+  const s=Math.ceil(Math.max(0,clockAt-Date.now())/1000);
+  if(s>CLOCK_SHOW){ el.textContent=''; el.className='clk'; return; }
+  el.textContent=s+'s';
+  el.className='clk on'+(s<=6?' urgent':'');
+}
+setInterval(tickClock,250);
 
 loadPack();
 if(document.body)applyTheme();else document.addEventListener('DOMContentLoaded',applyTheme);
 if(document.body)initSwitchHaptic();else document.addEventListener('DOMContentLoaded',initSwitchHaptic);
+/* ---------- staying connected across an app switch ----------
+   Leaving the game and coming back is the normal way to use a phone, and it
+   used to be the way to get stuck. Two things go wrong.
+
+   The obvious one is that the socket is closed while the app is in the
+   background. onclose fires on the way back and the retry below handles it.
+
+   The nastier one is a socket that is dead without anyone saying so. The phone
+   loses the network in the reader's pocket, nothing is delivered, and the
+   browser still reports the socket as open. Nothing arrives, nothing is sent,
+   and the table sits there looking frozen forever. So on every return to the
+   app the link is challenged: send a ping, and if nothing at all comes back
+   shortly, throw the socket away and build a new one. */
+let lastRx=0, reconnT=null, linkEl=null;
+function linkState(up){
+  if(up){ if(linkEl){ linkEl.remove(); linkEl=null; } return; }
+  if(linkEl)return;
+  linkEl=document.createElement('div');
+  linkEl.className='linkbar';
+  linkEl.textContent='Reconnecting';
+  document.body.appendChild(linkEl);
+}
+function scheduleReconnect(delay){
+  if(!myCode)return;
+  clearTimeout(reconnT);
+  linkState(false);
+  reconnT=setTimeout(()=>{
+    reconnT=null;
+    if(ws&&ws.readyState===1)return;          // something else already fixed it
+    if(ws){ ws.onclose=null; try{ws.close();}catch(e){} }
+    autoRejoin=true;
+    connect(()=>send({t:'join',code:myCode,token:myToken,name:store.get('bq_name')||''}));
+  },delay);
+}
+function checkLink(){
+  if(!myCode)return;
+  if(!ws||ws.readyState!==1){ scheduleReconnect(0); return; }
+  const mark=lastRx;
+  send({t:'ping'});
+  // the server answers immediately, so silence here means the socket is a corpse
+  setTimeout(()=>{ if(lastRx===mark&&ws&&ws.readyState===1) scheduleReconnect(0); },3500);
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkLink(); });
+window.addEventListener('pageshow',checkLink);
+window.addEventListener('focus',checkLink);
+window.addEventListener('online',checkLink);
+
 function connect(then){
   const proto=location.protocol==='https:'?'wss':'ws';
   ws=new WebSocket(proto+'://'+location.host);
-  ws.onopen=()=>{ if(then)then(); };
+  ws.onopen=()=>{ lastRx=Date.now(); if(then)then(); };
   ws.onmessage=e=>{
+    lastRx=Date.now();
+    linkState(true);
     const m=JSON.parse(e.data);
+    if(m.t==='pong')return;
     if(m.t==='seated'){ seat=m.seat; myToken=m.token; myCode=m.code;
       store.set('bq_token',myToken); store.set('bq_code',myCode); }
     else if(m.t==='state'){
@@ -688,16 +805,26 @@ function connect(then){
         const evts=(V.fx||[]).map(e=>typeof e==='string'?{n:e,l:null}:e);
         play(evts.map(e=>e.n)); showMoments(evts); runPack(evts); }
       const c=V.chat||[];
-      if(c.length>seenChat){
-        const fresh=c.slice(seenChat);
-        seenChat=c.length;
-        const inbound=fresh.filter(x=>x.i!==V.you);
-        if(inbound.length&&!chatOpen){
-          unread+=inbound.length;
-          const last=inbound[inbound.length-1];
-          chatToast(last.name,last.text);
+      if(c.length){
+        const newest=c[c.length-1].id||0;
+        // first sight of a table: whatever was said before you arrived is not news
+        if(lastChatId===null)lastChatId=newest;
+        else if(newest>lastChatId){
+          const fresh=c.filter(x=>(x.id||0)>lastChatId);
+          lastChatId=newest;
+          const inbound=fresh.filter(x=>x.i!==V.you);
+          if(inbound.length&&!chatOpen){
+            unread+=inbound.length;
+            const last=inbound[inbound.length-1];
+            chatToast(last.name,last.text);
+          }
         }
       }
+      // the countdown runs off a local deadline, since the phone's clock is its own
+      if(typeof V.turnMs==='number'){ clockAt=Date.now()+V.turnMs; clockSeat=V.turnSeat; }
+      else { clockAt=null; clockSeat=null; }
+      // an armed card that is no longer playable must not stay armed
+      if(pickId!==null&&!(V.phase==='play'&&V.turn===V.you&&(V.legalIds||[]).includes(pickId)))pickId=null;
       render(); updateChat();
     }
     else if(m.t==='err'){
@@ -709,6 +836,7 @@ function connect(then){
         autoRejoin=false;
         store.del('bq_token'); store.del('bq_code');
         myToken=null; myCode=null; seat=null;
+        clearTimeout(reconnT); reconnT=null; linkState(true);
         if(ws){ ws.onclose=null; try{ws.close();}catch(e){} ws=null; }
         screen='home'; render();
         return;
@@ -716,7 +844,7 @@ function connect(then){
       toast(m.msg); if(screen==='home')render();
     }
   };
-  ws.onclose=()=>{ setTimeout(()=>{ if(myCode){ autoRejoin=true; connect(()=>send({t:'join',code:myCode,token:myToken,name:store.get('bq_name')||''})); } },1500); };
+  ws.onclose=()=>{ scheduleReconnect(1500); };
 }
 function send(o){ if(ws&&ws.readyState===1)ws.send(JSON.stringify(o)); }
 function toast(msg){
@@ -801,7 +929,9 @@ function renderHome(R){
     </div>
     <input class="fld code" id="cd" maxlength="4" placeholder="CODE">
     <button class="btn ghost block" id="jn">Join table</button>
+    <div style="text-align:center;margin-top:14px"><button class="linkish" id="hr">How to play</button></div>
   </div>`;
+  document.getElementById('hr').onclick=showRules;
   const nm=()=>{const v=document.getElementById('nm').value.trim()||'Player';store.set('bq_name',v);return v;};
   document.getElementById('mk').onclick=()=>{
     const n=nm(); connect(()=>send({t:'create',name:n,size:6}));
@@ -824,7 +954,7 @@ function renderLobby(R){
       <p class="sub" style="text-align:center;margin-top:-6px">Share this code. Anyone on the link can join.</p>
       <div class="lob">${V.seats.map((s,i)=>`<div class="lobrow">
         <span><span class="dot ${s.connected?'':'off'}"></span>${esc(s.name)}${i===V.you?' (you)':''}</span>
-        <span class="em">${i===0?'host':'seated'}</span></div>`).join('')}
+        <span class="em">${i===V.hostSeat?'host':'seated'}</span></div>`).join('')}
         ${Array.from({length:Math.max(0,V.size-V.seats.length)},()=>`<div class="lobrow" style="opacity:.4"><span>Empty seat</span><span class="em">bot if you start now</span></div>`).join('')}
       </div>
       ${V.isHost?`<p class="sub">Table size</p>
@@ -867,6 +997,7 @@ function renderGame(R){
     else if(i===me&&V.secretMate)tag='<div class="tag mate">partner (hidden)</div>';
     const onTeam=team.has(i)||(i===me&&V.secretMate);
     return `<div class="seat ${turn?'turn':''} ${i===me?'you':''} ${passed?'out':''} ${V.trump&&onTeam?'tside':''}">
+      ${i===clockSeat?'<div class="clk" id="tclk"></div>':''}
       <div class="cnt">${V.phase==='bid'?'':s.cards}</div>
       <div class="nm">${s.connected?'':'<span class="dot off"></span>'}${esc(s.name)}</div>
       <div class="sc">${s.score}</div>${tag}
@@ -883,6 +1014,7 @@ function renderGame(R){
     let cls=lg?(lg.includes(c.id)?'ok':'no'):'';
     if(prevSuit&&prevSuit!==c.s)cls+=' gap';
     if(V.trump&&c.s===V.trump)cls+=' tr';
+    if(c.id===pickId)cls+=' sel';
     prevSuit=c.s;
     return cardEl(c,cls);
   }).join('');
@@ -917,12 +1049,24 @@ function renderGame(R){
     hg.disabled=true; hg.classList.add('cool');
     setTimeout(()=>{ hg.disabled=false; hg.classList.remove('cool'); },3000);
   };
-  [...R.querySelectorAll('.hand .card.ok')].forEach(el=>el.onclick=()=>{ buzz(11); send({t:'play',cardId:+el.dataset.id}); });
+  [...R.querySelectorAll('.hand .card.ok')].forEach(el=>el.onclick=()=>{
+    const id=+el.dataset.id;
+    if(confirmOn()&&pickId!==id){
+      pickId=id; buzz(9);
+      const c=V.hand.find(x=>x.id===id);
+      if(c)flash('Tap again to play '+c.r+SYM[c.s]);
+      render(); return;
+    }
+    pickId=null; buzz(11); send({t:'play',cardId:id});
+  });
   [...R.querySelectorAll('.hand .card.no')].forEach(el=>el.onclick=()=>{
     el.classList.remove('nope'); void el.offsetWidth; el.classList.add('nope'); buzz([9,42,9]);
     if(V.turn===V.you&&V.lead)flash('Follow '+SYM[V.lead]+' if you can');
   });
+  const lt=document.getElementById('ltl');
+  if(lt)lt.onclick=showLastTrick;
   renderPanel();
+  tickClock();
 }
 
 function teamsBar(){
@@ -944,8 +1088,46 @@ function teamsBar(){
 }
 function idleText(){
   if(V.phase==='declare')return 'The bidder is choosing trump and calling partners.';
-  if(V.lastTrick)return `${esc(V.seats[V.lastTrick.winner].name)} took the last trick${V.lastTrick.pts?' for '+V.lastTrick.pts:''}.`;
+  if(V.lastTrick)return `${esc(V.seats[V.lastTrick.winner].name)} took the last trick${V.lastTrick.pts?' for '+V.lastTrick.pts:''}.`
+    +(V.lastTrick.cards?`<br><button class="linkish" id="ltl">See what was played</button>`:'');
   return 'The bidder leads the first trick.';
+}
+/* The cards are gone from the cloth within a couple of seconds, which is not
+   long enough to work out how a trick went if you were looking away. */
+function showLastTrick(){
+  const t=V&&V.lastTrick;
+  if(!t||!t.cards)return modal(`<h2>Last trick</h2><p>Nothing has been taken yet this round.</p>`);
+  const cards=t.cards.map(x=>`<div class="played ${x.p===t.winner?'w':''}">
+    <div style="display:flex">${cardEl(x.card,V.trump&&x.card.s===V.trump?'tr':'')}</div>
+    <div class="who">${x.p===V.you?'you':esc(V.seats[x.p].name)}</div></div>`).join('');
+  modal(`<h2>Trick ${t.no}</h2>
+    <p>Led in ${t.lead?SYM[t.lead]+' '+NAME[t.lead]:'—'}. Taken by
+      <b style="color:var(--jade)">${t.winner===V.you?'you':esc(V.seats[t.winner].name)}</b>
+      for <b style="color:var(--brass)">${t.pts}</b>${t.pts===1?' point':' points'}.</p>
+    <div class="ltrick">${cards}</div>`);
+}
+/* Round by round, because the argument about who bid what four hands ago is
+   half the point of the game. */
+function showScorecard(){
+  const h=(V&&V.history)||[];
+  if(!h.length)return modal(`<h2>Scorecard</h2><p>Nothing to show until the first round is scored.</p>`);
+  const names=V.seats.map((s,i)=>i===V.you?'You':esc(s.name));
+  const head=`<tr><th>Round</th><th>Contract</th>${names.map(n=>`<th>${n}</th>`).join('')}</tr>`;
+  const rows=h.map(r=>{
+    const won=new Set(r.winners);
+    const prev=h[h.indexOf(r)-1];
+    return `<tr><td>${r.deal}</td>
+      <td class="bd">${esc(V.seats[r.bidder].name)} ${r.amount}${SYM[r.trump]||''}
+        ${r.made?'<span style="color:var(--jade)">&#10003;</span>':'<span style="color:var(--crimson)">&times;</span>'}</td>
+      ${V.seats.map((s,i)=>{
+        const gain=r.scores[i]-(prev?prev.scores[i]:0);
+        return `<td class="${i===V.you?'you':''} ${won.has(i)?'won':''}">${gain?'+'+gain:'&middot;'}</td>`;
+      }).join('')}</tr>`;
+  }).join('');
+  const last=h[h.length-1];
+  const tot=`<tr class="tot"><td>Total</td><td></td>${V.seats.map((s,i)=>`<td>${last.scores[i]}</td>`).join('')}</tr>`;
+  modal(`<h2>Scorecard</h2><p>After ${h.length} of ${V.totalDeals} rounds. A tick means the contract was made.</p>
+    <div class="cardscroll"><table class="sc">${head}${rows}${tot}</table></div>`);
 }
 
 function renderPanel(){
@@ -1043,8 +1225,10 @@ function renderPanel(){
       ${r.early?`<p style="margin-top:10px;color:var(--muted);font-size:12px">Both called cards were already down, so the sides above are final. The deal stopped because ${esc(V.seats[V.bidder].name)} could not reach ${V.bidAmount} even by taking every remaining point.</p>`:''}
       <p style="margin-top:11px">${r.isLast?'Final round, so scoring is at actual. ':''}<b style="color:var(--brass)">+${r.award}</b> each to ${r.winners.map(i=>esc(V.seats[i].name)).join(', ')}.</p>
       ${V.phase==='gameover'
-        ? `<div class="row">${V.isHost?'<button class="btn wide" id="ag">Play another game</button>':''}<button class="btn quiet wide" id="fin">Final table</button></div>`
-        : `<div class="row"><button class="btn wide" id="nx">Next round</button></div><div class="hint" style="margin-top:8px">Deals automatically in a few seconds.</div>`}`;
+        ? `<div class="row">${V.isHost?'<button class="btn wide" id="ag">Play another game</button>':''}<button class="btn quiet wide" id="fin">Final table</button></div>
+           <div class="row" style="margin-top:8px"><button class="btn ghost wide" id="scb">Scorecard</button></div>`
+        : `<div class="row"><button class="btn wide" id="nx">Next round</button><button class="btn quiet" id="scb">Scorecard</button></div><div class="hint" style="margin-top:8px">Deals automatically in a few seconds.</div>`}`;
+    if(document.getElementById('scb'))document.getElementById('scb').onclick=showScorecard;
     if(document.getElementById('nx'))document.getElementById('nx').onclick=()=>send({t:'next'});
     if(document.getElementById('ag'))document.getElementById('ag').onclick=()=>send({t:'again'});
     if(document.getElementById('fin'))document.getElementById('fin').onclick=showFinal;
@@ -1068,10 +1252,18 @@ function showFinal(){
       <span class="${k===0?'d':''}" style="font-family:'Bodoni Moda',serif;font-size:15px">${x.s.score}</span></div>`).join('')}`);
 }
 function leave(){
+  // tell the table, so a lobby seat is freed now instead of being held open
+  // for the ninety second reconnect grace that a dropped phone gets
+  send({t:'leave'});
   store.del('bq_token'); store.del('bq_code');
   myToken=null; myCode=null; V=null; screen='home';
-  closeChat(); seenChat=0; unread=0;
-  if(ws){ws.onclose=null;ws.close();ws=null;}
+  closeChat(); lastChatId=null; unread=0;
+  clockAt=null; clockSeat=null; pickId=null;
+  clearTimeout(reconnT); reconnT=null; linkState(true);
+  // hold the socket in a local: the close is deferred so the leave actually goes out
+  const sock=ws;
+  if(sock){sock.onclose=null;setTimeout(()=>{try{sock.close();}catch(e){}},60);}
+  ws=null;
   render();
 }
 function soundDiag(){
@@ -1147,18 +1339,27 @@ function wireTheme(){
 function moreMenu(){
   const d=modal(`<h2>Table</h2>
     <div class="row" style="flex-direction:column;gap:8px;margin-top:10px">
-      <button class="btn block" data-go="rules">How to play</button>
+      <button class="btn block" data-go="score">Scorecard</button>
+      <button class="btn ghost block" data-go="last">Last trick</button>
+      <button class="btn ghost block" data-go="rules">How to play</button>
+      <button class="btn ghost block" data-go="confirm">Confirm each card: <span id="mmConf"></span></button>
       <button class="btn ghost block" data-go="cloth">Table cloth: <span id="mmCloth"></span></button>
       <button class="btn ghost block" data-go="sound">Sound and vibration</button>
       <button class="btn quiet block" data-go="leave">Leave this table</button>
     </div>`);
-  const lab=()=>{const e=d.querySelector('#mmCloth'); if(e)e.textContent=tableTheme()==='baize'?'green baize':'midnight';};
+  const lab=()=>{
+    const e=d.querySelector('#mmCloth'); if(e)e.textContent=tableTheme()==='baize'?'green baize':'midnight';
+    const c=d.querySelector('#mmConf'); if(c)c.textContent=confirmOn()?'on':'off';
+  };
   lab();
   d.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{
     const g=b.getAttribute('data-go');
     if(g==='cloth'){ toggleTheme(); lab(); return; }
+    if(g==='confirm'){ store.set('bq_confirm',confirmOn()?'0':'1'); pickId=null; lab(); render(); return; }
     d.remove();
     if(g==='rules')showRules();
+    else if(g==='score')showScorecard();
+    else if(g==='last')showLastTrick();
     else if(g==='sound')soundDiag();
     else if(g==='leave')leave();
   });

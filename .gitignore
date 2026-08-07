@@ -1,0 +1,6 @@
+node_modules/
+npm-debug.log*
+.DS_Store
+
+# tables written out on shutdown so a restart can pick them back up
+.rooms.json
