@@ -442,17 +442,49 @@ function botDeclare(R, i) {
     if (!worthCalling(s)) return;
     if (okToCallHeld('K', s)) cands.push({ r: 'K', s, w: 18 - by[s] * 3 });
   });
-  /* Last resort, so a hand that fails every rule above can still name two
-     cards. Ordered so the rules bend in the least damaging order: a card in a
-     suit it actually holds first, one it does not already hold before one it
-     does. */
+  /* Last resort, for the one hand in a lifetime that holds every card it could
+     otherwise call: fourteen spades carrying both aces, both kings and both
+     queens leaves nothing legal to name, and the contract still has to be
+     declared. Two calls must always exist.
+
+     These sit a thousand below everything else on purpose. A vetted candidate
+     can score negative — a king in a seven card suit comes out at -3 — and
+     when the fallbacks were merely low they outranked it and broke a rule
+     while a legal call was sitting right there. Being unreachable except on an
+     empty list is the whole point of a fallback. */
   SUITS.forEach(s => cands.push({
     r: 'A', s,
-    w: (worthCalling(s) ? 4 : 0) + (have.has('A' + s) ? 0 : 2)
+    w: -1000 + (worthCalling(s) ? 4 : 0) + (have.has('A' + s) ? 0 : 2)
   }));
   cands.sort((a, b) => b.w - a.w);
   const seen = new Set(), pick = [];
-  for (const c of cands) { const k = c.r + c.s; if (seen.has(k)) continue; seen.add(k); pick.push(c); if (pick.length === 2) break; }
+  // first pass takes only cards that satisfied both rules
+  for (const c of cands) {
+    if (c.w < -900) break;
+    const k = c.r + c.s;
+    if (seen.has(k)) continue;
+    seen.add(k); pick.push(c);
+    if (pick.length === 2) break;
+  }
+  /* Only one card came through the rules — a hand void in a suit and holding
+     most of the aces and kings in the others does this. Rather than break a
+     rule to find a second call, name the same card twice: the rules allow it
+     and each copy brings in its own partner, so the side ends up the same size
+     it would have been. Not a 4, which exists only once in the deck, and not a
+     card already in hand, where laying your own copy makes the two calls
+     interfere with each other. */
+  if (pick.length === 1 && pick[0].r !== '4' && !have.has(pick[0].r + pick[0].s)) {
+    pick.push(pick[0]);
+  }
+  // still short: now the rules have to give, least damaging first
+  if (pick.length < 2) {
+    for (const c of cands) {
+      const k = c.r + c.s;
+      if (seen.has(k)) continue;
+      seen.add(k); pick.push(c);
+      if (pick.length === 2) break;
+    }
+  }
   doDeclare(R, i, trump, [{ r: pick[0].r, s: pick[0].s }, { r: pick[1].r, s: pick[1].s }]);
 }
 function knownMate(R, i, j) {

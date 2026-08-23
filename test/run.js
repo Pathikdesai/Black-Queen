@@ -133,6 +133,32 @@ function unitTests() {
     G.safeToRisk(R2, 3, C('Q','S',90), true), '');
   stop(R2);
 
+  /* A hand void in one suit that holds most of the aces and kings in the others
+     leaves only one card the rules allow it to call. Rather than break a rule
+     to find a second, it names the same card twice: the rules permit that and
+     each copy brings in its own partner. This exact hand used to call an ace it
+     was holding. */
+  let id2 = 0;
+  const starved = [
+    C('A','H',id2++),C('K','H',id2++),C('8','H',id2++),C('7','H',id2++),C('6','H',id2++),
+    C('A','D',id2++),C('K','D',id2++),C('9','D',id2++),C('7','D',id2++),C('6','D',id2++),
+    C('A','C',id2++),C('10','C',id2++),C('10','C',id2++),C('8','C',id2++)
+  ];
+  const R4 = table([starved, [], [], [], [], []]);
+  R4.phase = 'declare'; R4.bidder = 0; R4.bidAmount = 125;
+  R4.team = new Set([0]); R4.privateTeam = new Set([0]);
+  G.botDeclare(R4, 0);
+  const c4 = R4.called || [];
+  const held4 = new Set(starved.map(c => c.r + c.s));
+  ok('a hand with only one legal call names it twice rather than break a rule',
+    c4.length === 2 && c4[0].r === c4[1].r && c4[0].s === c4[1].s,
+    'called ' + c4.map(c => c && c.r + c.s).join(' + '));
+  ok('and that doubled call is not a card it is holding',
+    c4.length === 2 && !held4.has(c4[0].r + c4[0].s),
+    'called ' + (c4[0] && c4[0].r + c4[0].s));
+  ok('nor a 4, which exists only once in the deck', c4.length === 2 && c4[0].r !== '4', '');
+  stop(R4);
+
   // length beats raw points: two hands with the same points, different shapes
   const flat = [
     C('A','S',1),C('5','S',2),C('10','H',3),C('A','H',4),C('5','D',5),C('10','D',6),
