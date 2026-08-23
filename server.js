@@ -371,6 +371,13 @@ function endDeal(R) {
 }
 
 /* ========================= BOT BRAIN ========================= */
+/* How high this hand is worth going. Points in hand count for far less than
+   they look: they are only worth what you can actually take. What decides a
+   hand is control — aces, the black queens, and above all length, because a
+   long suit made trump is a suit nobody else can get past.
+
+   Length in spades counts double, since the two black queens ride in that suit:
+   making spades trump puts 40 of the 200 points under your own protection. */
 function botCeiling(R, i) {
   const h = R.players[i].hand;
   const pts = h.reduce((a, c) => a + ptsOf(c), 0);
@@ -378,28 +385,81 @@ function botCeiling(R, i) {
   const longest = Math.max(...SUITS.map(s => by[s]));
   const aces = h.filter(c => c.r === 'A').length;
   const kings = h.filter(c => c.r === 'K').length;
-  let est = 52 + pts * 0.55 + longest * 6.5 + aces * 5 + kings * 2.5 + (Math.random() * 14 - 7);
+  const queens = h.filter(c => c.r === 'Q' && c.s === 'S').length;
+  const voids = SUITS.filter(s => by[s] === 0).length;
+  const est = 60
+    + longest * 6
+    + by.S * 2
+    + aces * 6
+    + queens * 8
+    + kings * 2
+    + voids * 3
+    + pts * 0.15
+    + (Math.random() * 10 - 5);
   return Math.min(MAXBID, Math.round(est / STEP) * STEP);
 }
+/* Always one step at a time, never a jump to what the hand is worth. A strong
+   hand wins the auction anyway, and every five it climbs on the way up is five
+   more it has to find later, so the cheapest contract that still wins is the
+   one to hold. */
 function botBid(R, i) {
   const b = R.bidState;
   if (!b.opened) return doBid(R, i, MINBID);
   const want = b.high + STEP;
   if (want <= botCeiling(R, i) && want <= MAXBID) doBid(R, i, want); else doPass(R, i);
 }
+/* How good a suit is to own, which is not the same as how long it is. Length
+   is the bulk of it, an ace and a king on top of it are worth about a card and
+   a half between them, and spades carry a premium: each black queen is 20
+   points, and making spades trump is what keeps them yours. A five card spade
+   holding with the ace and queen beats six hearts with the same top cards,
+   because the hearts are worth nothing and the spades are worth forty. */
+function suitStrength(h, s) {
+  const n = h.filter(c => c.s === s).length;
+  if (!n) return -1;
+  const has = r => h.some(c => c.r === r && c.s === s);
+  let v = n + (has('A') ? 1 : 0) + (has('K') ? 0.5 : 0);
+  if (s === 'S') v += 1 + h.filter(c => c.r === 'Q' && c.s === 'S').length * 2;
+  return v;
+}
 function botDeclare(R, i) {
   const h = R.players[i].hand;
   const by = { S: 0, H: 0, D: 0, C: 0 }; h.forEach(c => by[c.s]++);
-  let trump = SUITS[0]; SUITS.forEach(s => { if (by[s] > by[trump]) trump = s; });
-  const have = new Set(h.map(c => c.r + c.s));
+  let trump = 'S';
+  SUITS.forEach(s => { if (suitStrength(h, s) > suitStrength(h, trump)) trump = s; });
+
+  /* One rule only: never call into a suit you are void in. You can never lay
+     that card yourself, so it comes down whenever somebody else happens to
+     lead the suit and brings you nothing when it does.
+
+     Calling a card you are holding is not a problem, and is often the point:
+     the second copy is still out there, and whoever has it joins you. What you
+     must not then do is lay your own copy — that is handled at play time, not
+     here.
+
+     The calls belong in the trump suit wherever possible. Partners found in
+     the suit you control are partners you can actually work with. */
   const cands = [];
-  if (!have.has('QS')) cands.push({ r: 'Q', s: 'S', w: 100 });
-  SUITS.forEach(s => { if (!have.has('A' + s)) cands.push({ r: 'A', s, w: 60 - by[s] * 4 + (s === trump ? 15 : 0) }); });
-  SUITS.forEach(s => { if (!have.has('K' + s)) cands.push({ r: 'K', s, w: 20 - by[s] * 3 }); });
-  SUITS.forEach(s => cands.push({ r: 'A', s, w: 5 }));
+  SUITS.forEach(s => {
+    if (by[s] === 0) return;
+    const trumped = s === trump;
+    if (s === 'S') cands.push({ r: 'Q', s: 'S', w: trumped ? 100 : 84 });
+    cands.push({ r: 'A', s, w: trumped ? 90 : 60 - by[s] * 2 });
+    cands.push({ r: 'K', s, w: trumped ? 75 : 25 - by[s] * 2 });
+  });
   cands.sort((a, b) => b.w - a.w);
   const seen = new Set(), pick = [];
-  for (const c of cands) { const k = c.r + c.s; if (seen.has(k)) continue; seen.add(k); pick.push(c); if (pick.length === 2) break; }
+  for (const c of cands) {
+    const k = c.r + c.s;
+    if (seen.has(k)) continue;
+    seen.add(k); pick.push(c);
+    if (pick.length === 2) break;
+  }
+  /* Any hand holding cards at all has at least an ace and a king to name in
+     some suit, so this cannot run short. Kept as a guard rather than a plan:
+     naming one card twice is legal and brings in a partner on each copy. */
+  if (pick.length === 1 && pick[0].r !== '4') pick.push(pick[0]);
+  if (!pick.length) { pick.push({ r: 'A', s: trump }, { r: 'K', s: trump }); }
   doDeclare(R, i, trump, [{ r: pick[0].r, s: pick[0].s }, { r: pick[1].r, s: pick[1].s }]);
 }
 function knownMate(R, i, j) {
@@ -426,24 +486,87 @@ function topOut(R, i, s) {
 function opponentVoid(R, i, s) {
   return R.players.some((q, j) => j !== i && !knownMate(R, i, j) && R.voids[j] && R.voids[j].has(s));
 }
+function trumpsIn(R, i) {
+  return R.players[i].hand.filter(c => c.s === R.trump).length;
+}
+/* Only a spade above the queen takes a black queen off the table. While one is
+   still unaccounted for, the ace and king of spades are worth more as catchers
+   than as ordinary winners: spend the ace on some five point trick early and
+   when the queen finally comes down there is nothing left in the hand that
+   beats it. Holding A♠ 10♠ and nothing else high, the ace is the whole
+   difference between taking twenty and watching it go past. */
+function queenCatcher(R, i, card) {
+  if (card.s !== 'S' || RV[card.r] <= RV.Q) return false;
+  return stillOut(R, i, 'S', 'Q') > 0;
+}
+function trickHasQueen(R) {
+  return R.trick.some(t => t.card.r === 'Q' && t.card.s === 'S');
+}
+/* The black queen is twenty points travelling to whoever wins the trick, so it
+   is the one card whose cost has to be weighed against losing, not just its
+   chance of winning. It may go down when the trick is already settled — playing
+   last, or with none but partners left to play — or when nothing outstanding
+   can beat it. Anywhere else it stays in the hand, however convenient it looks.
+   Every other card is judged on the trick alone. */
+function safeToRisk(R, i, card, last) {
+  if (!(card.r === 'Q' && card.s === 'S')) return true;
+  if (last) return true;
+  const after = R.n - R.trick.length - 1;
+  let strangers = 0;
+  for (let k = 1; k <= after; k++) {
+    const j = (i + k) % R.n;
+    if (!knownMate(R, i, j)) strangers++;
+  }
+  if (strangers === 0) return true;
+  // nobody left holding a spade above the queen, and no trump to cut it with
+  const beatable = topOut(R, i, 'S') > RV.Q;
+  const cuttable = R.trump !== 'S' && trumpsOut(R, i) > 0 && R.lead !== R.trump;
+  return !beatable && !cuttable;
+}
 function trumpsOut(R, i) {
   let n = 0;
   for (const r of RANKS) n += stillOut(R, i, R.trump, r);
   return n;
 }
 
+/* The bidder called a card he is holding a copy of, and this is that copy.
+   Laying it himself spends the call: the holder of the other copy joins, but
+   the bidder has handed away the lead in a suit he no longer controls. Holding
+   both kings of the suit means he still controls it, and then it does not
+   matter. So keep it back while there is anything else to play. */
+function ownCallToHold(R, i, card) {
+  if (i !== R.bidder) return false;
+  const open = R.called.some((cc, k) => !R.calledDone[k] && cc.r === card.r && cc.s === card.s);
+  if (!open) return false;
+  return R.players[i].hand.filter(c => c.r === 'K' && c.s === card.s).length < 2;
+}
 function botPlay(R, i) {
   const hand = R.players[i].hand;
-  const opts = legal(hand, R.lead);
-  if (!opts.length) return;
+  const playable = legal(hand, R.lead);
+  if (!playable.length) return;
+  const spare = playable.filter(c => !ownCallToHold(R, i, c));
+  const opts = spare.length ? spare : playable;
   const pot = R.trick.reduce((a, t) => a + ptsOf(t.card), 0);
   const last = R.trick.length === R.n - 1;
   const bySuit = s => hand.filter(c => c.s === s).length;
 
   if (R.trick.length === 0) {
-    /* Leading. A card that nobody can beat is worth cashing, biggest points
-       first, but only in a suit no opponent is known to be out of, since a void
-       opponent with a trump left would simply cut it. */
+    /* Leading a singleton side suit. This is the bidder's opening move at a real
+       table and it does two jobs at once: it empties the suit, so every later
+       round of it can be cut, and when the singleton happens to be an ace it
+       banks the ten points at the one moment nobody can be void yet. Held back,
+       that same ace gets cut around trick six. */
+    const singles = opts.filter(c => c.s !== R.trump && bySuit(c.s) === 1);
+    if (singles.length) {
+      const ace = singles.find(c => RV[c.r] >= topOut(R, i, c.s));
+      if (ace) return doPlay(R, i, ace.id);
+      const cheapSingle = singles.filter(c => ptsOf(c) === 0)
+        .sort((a, b) => RV[a.r] - RV[b.r])[0];
+      if (cheapSingle && trumpsIn(R, i) > 0) return doPlay(R, i, cheapSingle.id);
+    }
+    /* A card nobody can beat is worth cashing, biggest points first, but only in
+       a suit no opponent is known to be out of: a void opponent holding a trump
+       would simply cut it. */
     const cashable = opts.filter(c => c.s !== R.trump
       && RV[c.r] >= topOut(R, i, c.s)
       && !(opponentVoid(R, i, c.s) && trumpsOut(R, i) > 0));
@@ -451,16 +574,32 @@ function botPlay(R, i) {
       cashable.sort((a, b) => ptsOf(b) - ptsOf(a) || RV[b.r] - RV[a.r]);
       return doPlay(R, i, cashable[0].id);
     }
+    /* Still nobody claimed as a partner: lead the suit of a called card to pull
+       them out. The sooner a partner shows, the sooner both of them know which
+       way to push the points. */
+    if (i === R.bidder && !(R.calledDone[0] && R.calledDone[1])) {
+      for (let k = 0; k < 2; k++) {
+        if (R.calledDone[k]) continue;
+        const s = R.called[k].s;
+        const feeler = opts.filter(c => c.s === s && ptsOf(c) === 0)
+          .sort((a, b) => RV[a.r] - RV[b.r])[0];
+        if (feeler) return doPlay(R, i, feeler.id);
+      }
+    }
     // Otherwise draw trumps while holding length in them, which protects points later.
     const trumps = opts.filter(c => c.s === R.trump);
     if (trumps.length >= 4 && trumpsOut(R, i) > 0) {
       const hi = trumps.slice().sort((a, b) => RV[b.r] - RV[a.r])[0];
       if (RV[hi.r] >= topOut(R, i, R.trump)) return doPlay(R, i, hi.id);
     }
-    // Nothing to cash: lead a low card from the shortest side suit and keep the points.
+    /* Nothing to cash: lead a low card from the shortest side suit and keep the
+       points. The queen rule applies to a lead as much as to a follow — leading
+       her with five players still to come is the worst version of it. */
     const safe = opts.filter(c => ptsOf(c) === 0 && c.s !== R.trump);
     const pool = safe.length ? safe : (opts.filter(c => ptsOf(c) === 0).length ? opts.filter(c => ptsOf(c) === 0) : opts);
-    return doPlay(R, i, pool.sort((a, b) => bySuit(a.s) - bySuit(b.s) || RV[a.r] - RV[b.r])[0].id);
+    const keepable = pool.filter(c => safeToRisk(R, i, c, false));
+    const leadFrom = keepable.length ? keepable : pool;
+    return doPlay(R, i, leadFrom.sort((a, b) => bySuit(a.s) - bySuit(b.s) || RV[a.r] - RV[b.r])[0].id);
   }
 
   let best = 0;
@@ -474,23 +613,51 @@ function botPlay(R, i) {
     const fat = opts.slice().sort((a, b) => ptsOf(b) - ptsOf(a))[0];
     if (ptsOf(fat) > 0) return doPlay(R, i, fat.id);
   }
+  /* Holding a called card and not yet shown: lay it at the first chance rather
+     than sitting on it. Coming in late costs the side points, because until the
+     bidder knows who you are neither of you knows which way to push a trick. */
+  if (!R.team.has(i)) {
+    for (let k = 0; k < 2; k++) {
+      if (R.calledDone[k]) continue;
+      const cc = R.called[k];
+      const mine = opts.find(c => c.r === cc.r && c.s === cc.s);
+      if (mine) return doPlay(R, i, mine.id);
+    }
+  }
   if (!friendly && winners.length) {
     /* Spend a card on this trick when there is something in it, when I am last
        and can take it cheaply, or when everyone still to play is void in the
        led suit and the pot is about to be cut away from me anyway. */
-    const cheapest = winners.slice().sort((a, b) =>
-      (a.s === R.trump) - (b.s === R.trump) || RV[a.r] - RV[b.r])[0];
-    const cheap = RV[cheapest.r] <= RV['10'];
-    if (pot > 0 || (last && cheap) || (cheap && !opponentVoid(R, i, R.lead))) {
-      return doPlay(R, i, cheapest.id);
+    const affordable = winners.filter(c => safeToRisk(R, i, c, last));
+    let usable = affordable.length ? affordable : (last ? winners : []);
+    /* Keep the queen catchers back unless this is the trick worth catching.
+       A queen already on the cloth is exactly what the ace was saved for; so
+       is any trick already carrying a queen's worth of points. Below that,
+       win it with something else or not at all. */
+    if (usable.length && !trickHasQueen(R) && pot < 20) {
+      const spare = usable.filter(c => !queenCatcher(R, i, c));
+      if (spare.length) usable = spare;
+    }
+    if (usable.length) {
+      const cheapest = usable.slice().sort((a, b) =>
+        (a.s === R.trump) - (b.s === R.trump) || RV[a.r] - RV[b.r])[0];
+      const cheap = RV[cheapest.r] <= RV['10'];
+      if (pot > 0 || (last && cheap) || (cheap && !opponentVoid(R, i, R.lead))) {
+        return doPlay(R, i, cheapest.id);
+      }
     }
   }
   /* Throwing away. Points stay in hand where possible, and among equally worthless
-     cards the one from the shortest suit goes, which is how a void gets created. */
-  const junk = opts.filter(c => ptsOf(c) === 0 && c.s !== R.trump);
-  const pool = junk.length ? junk : opts.filter(c => ptsOf(c) === 0);
-  const fin = pool.length ? pool : opts;
-  return doPlay(R, i, fin.sort((a, b) =>
+     cards the one that empties a suit goes first: a void is what lets the next
+     round of that suit be cut. */
+  /* The king of spades is worth nothing in itself, so it used to be thrown out
+     as junk. While a queen is still out it is a catcher and must not go. */
+  const junk = opts.filter(c => ptsOf(c) === 0 && c.s !== R.trump && !queenCatcher(R, i, c));
+  const backup = opts.filter(c => ptsOf(c) === 0 && !queenCatcher(R, i, c));
+  const pool = junk.length ? junk : (backup.length ? backup : opts.filter(c => ptsOf(c) === 0));
+  const fin = (pool.length ? pool : opts).filter(c => safeToRisk(R, i, c, last));
+  const throwable = fin.length ? fin : (pool.length ? pool : opts);
+  return doPlay(R, i, throwable.sort((a, b) =>
     ptsOf(a) - ptsOf(b) || bySuit(a.s) - bySuit(b.s) || RV[a.r] - RV[b.r])[0].id);
 }
 
@@ -957,5 +1124,7 @@ if (process.env.BQ_NO_LISTEN !== '1') {
 
 module.exports = {
   buildDeck, shuffle, ptsOf, beats, legal, sortHand, RANKS, SUITS, RV, TOTALPTS, COPIES,
-  rooms, createRoom, startGame, dumpRooms, loadRooms, saveRooms, tok
+  rooms, createRoom, startGame, dumpRooms, loadRooms, saveRooms, tok,
+  // the brain, so the strategy rules can be tested rather than only described
+  botCeiling, botDeclare, botPlay, safeToRisk, knownMate, topOut
 };

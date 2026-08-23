@@ -92,7 +92,22 @@ Phones need one tap anywhere before audio can start. That is a browser rule, not
 
 ## Things worth knowing
 
-**The bots count cards.** They track which cards have been played and who has failed to follow which suit, and use it to cash winners that can no longer be beaten, to avoid leading into a suit somebody is waiting to trump, and to throw away from their shortest suit. They only ever use what is visible at the table, so they are counting, not peeking. They make their contract about seven times in ten.
+**The bots count cards, and play to table rules.** They track which cards have been played and who has failed to follow which suit, and only ever use what is visible at the table, so they are counting rather than peeking.
+
+On top of that they follow a handful of conventions that came from a player rather than from the rulebook:
+
+- Length wins hands, not points in hand. Length in spades counts double, since the black queens ride in that suit.
+- Bid up one step at a time. A strong hand takes the auction anyway, and every five it climbs is five more to find later.
+- Trump is the suit you are strongest in, not simply the longest. Five spades with the ace and a black queen beats six hearts with the same top cards, because the hearts are worth nothing and the spades are worth forty.
+- Never call a card in a suit you are void in; that call can never come down.
+- Call in the trump suit where you can. A partner found in the suit you control is a partner you can work with.
+- Calling a card you are holding is fine — the second copy is out there and whoever has it joins you. Laying your own copy is the mistake, so the bidder keeps it back while he has anything else to play.
+- As bidder, lead a suit you hold one card of. It empties the suit for cutting later, and if that card is an ace it banks the points while everyone can still follow.
+- Holding a called card, lay it at the first opportunity. Until the partnership is shown, neither of you knows which way to push a trick.
+- The black queen only goes down when the trick is already settled: playing last, with none but partners left to play, or when nothing outstanding can beat her.
+- The ace and king of spades are held back while a black queen is still out. They are the only cards that take one off the table, and spending the ace on a five point trick means having nothing left when the queen finally appears.
+
+Played head to head against the bots that came before all this, three a side over 250 games, the current ones score about 5% more and win nearly three tables in five. Individual rules were measured the same way; the queen catchers are worth about 3% on their own.
 
 **A restart no longer ends the game.** Tables in progress are written to disk when the server goes down and read back when it comes up. Everyone's phone reconnects on its own and lands in the same seat with the same cards. This covers a crash, a manual restart and the server running out of memory. It does not cover a Render redeploy, because that replaces the whole machine and the file goes with it.
 

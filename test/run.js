@@ -75,6 +75,174 @@ function unitTests() {
   ok('it unmutes again afterwards', /\.muted\s*=\s*false/.test(prime), '');
   ok('and a clip wanted for real is spared the prime\'s pause', /_priming/.test(prime), '');
 
+  /* The bots play to rules a person at the table gave us, not to anything that
+     can be derived from the rulebook. They are worth pinning down, because a
+     later tidy-up could quietly undo one and nothing else would notice. */
+  console.log('\nthe bots keep to the table rules');
+  const C = (r, s, id) => ({ r, s, id });
+  function table(hands) {
+    const R = G.createRoom(6);
+    hands.forEach((h, i) => R.players.push({
+      name: 'B' + i, token: 'tok' + i, bot: true, connected: true,
+      ws: null, score: 0, hand: h, won: 0
+    }));
+    R.hostToken = 'tok0';
+    R.n = 6; R.handSize = 14; R.totalDeals = 9; R.dealNo = 1; R.dealer = 5;
+    R.trick = []; R.lead = null; R.leader = 0; R.trickNo = 1;
+    R.team = new Set(); R.privateTeam = new Set();
+    R.called = [null, null]; R.calledDone = [false, false];
+    R.seen = {}; R.voids = hands.map(() => new Set());
+    R.cuts = {}; R.partnerAt = [null, null]; R.bigTrick = null;
+    return R;
+  }
+  function stop(R) { clearTimeout(R.timer); clearTimeout(R.slowTimer); G.rooms.delete(R.code); }
+
+  // a bidder void in clubs must not call a club: that call can never come down
+  let id = 0;
+  const voidHand = [
+    C('A','S',id++),C('K','S',id++),C('Q','S',id++),C('J','S',id++),C('10','S',id++),
+    C('9','S',id++),C('8','S',id++),C('A','H',id++),C('K','H',id++),C('7','H',id++),
+    C('A','D',id++),C('K','D',id++),C('6','D',id++),C('5','D',id++)
+  ];
+  const R1 = table([voidHand, [], [], [], [], []]);
+  R1.phase = 'declare'; R1.bidder = 0; R1.bidAmount = 130;
+  R1.team = new Set([0]); R1.privateTeam = new Set([0]);
+  G.botDeclare(R1, 0);
+  const calls = R1.called || [];
+  ok('a bidder void in clubs never calls a club',
+    calls.length === 2 && calls.every(c => c.s !== 'C'),
+    'called ' + calls.map(c => c && c.r + c.s).join(' + '));
+  ok('and calls two real cards anyway', calls.length === 2 && calls[0] && calls[1], '');
+  stop(R1);
+
+  /* The black queen carries 20 points to whoever wins the trick, so it may only
+     go down when the trick is already decided. Same seat, same cards, two
+     different situations. */
+  const qHand = [C('Q','S',90), C('Q','S',91), C('8','S',92)];
+  const R2 = table([[], [], [], qHand, [], []]);
+  R2.phase = 'play'; R2.trump = 'S'; R2.bidder = 3; R2.bidAmount = 135;
+  R2.team = new Set([3]); R2.privateTeam = new Set([3]);
+  R2.calledDone = [true, true]; R2.called = [C('A','D',0), C('K','D',0)];
+  R2.leader = 0; R2.lead = 'S';
+  R2.trick = [{ p: 0, card: C('J','S',80) }, { p: 1, card: C('7','S',81) }, { p: 2, card: C('5','C',82) }];
+  const risky = G.safeToRisk(R2, 3, C('Q','S',90), false);
+  ok('the queen is refused with opponents still to play and a higher spade out', !risky, '');
+  const spare = G.safeToRisk(R2, 3, C('8','S',92), false);
+  ok('an ordinary spade in the same spot is fine', spare, '');
+  ok('and the queen is allowed from the last seat, where nothing can beat it',
+    G.safeToRisk(R2, 3, C('Q','S',90), true), '');
+  stop(R2);
+
+  /* Holding A♠ 10♠ and nothing else high, the ace is the only card in the hand
+     that beats a black queen. Spend it on some small trick and when the queen
+     finally comes down there is nothing left to take it. So it waits for the
+     trick that is actually worth catching. */
+  function follows(hand, trickCards, played) {
+    const R = table([[], [], [], hand, [], []]);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 130;
+    R.team = new Set([0]); R.privateTeam = new Set([0]);
+    R.called = [{ r: 'A', s: 'D' }, { r: 'K', s: 'D' }]; R.calledDone = [true, true];
+    R.trickNo = 6; R.leader = 0; R.lead = trickCards[0].s;
+    R.trick = trickCards.map((c, n) => ({ p: n, card: c }));
+    trickCards.forEach(c => { R.seen[c.r + c.s] = (R.seen[c.r + c.s] || 0) + 1; });
+    (played || []).forEach(k => { R.seen[k] = (R.seen[k] || 0) + 1; });
+    G.botPlay(R, 3);
+    const out = R.trick.length > trickCards.length ? R.trick[R.trick.length - 1].card : null;
+    stop(R);
+    return out ? out.r + out.s : 'nothing';
+  }
+  let id3 = 0;
+  const catcherHand = () => [
+    C('A','S',id3++),C('10','S',id3++),C('9','S',id3++),C('8','S',id3++),C('7','S',id3++)
+  ];
+  const small = follows(catcherHand(), [C('6','S',70),C('5','S',71),C('4','S',72)]);
+  ok('the ace of spades is kept back from a trick with no queen in it',
+    small !== 'AS', 'played ' + small);
+  const onQueen = follows(catcherHand(), [C('Q','S',73),C('5','S',74),C('4','S',75)]);
+  eq('and spent the moment a black queen is actually on the table', onQueen, 'AS');
+  const bothGone = follows(catcherHand(), [C('6','S',76),C('5','S',77),C('10','S',78)], ['QS','QS']);
+  eq('once both queens are gone it is an ordinary winner again', bothGone, 'AS');
+
+  /* Two hands a player talked through, kept here as the reference for what
+     declaring should do. Both call cards the bidder is holding, which is the
+     point of them: the second copy is out there and whoever has it joins you.
+     Holding a called card is fine — laying it yourself is the mistake, and
+     that is a play rule, tested further down. */
+  function declares(hand, bidder) {
+    const R = table([hand, [], [], [], [], []]);
+    R.phase = 'declare'; R.bidder = 0; R.bidAmount = 125;
+    R.team = new Set([0]); R.privateTeam = new Set([0]);
+    G.botDeclare(R, 0);
+    const out = { trump: R.trump, calls: (R.called || []).map(c => c && c.r + c.s) };
+    stop(R);
+    return out;
+  }
+  let id2 = 0;
+  // five diamonds, five hearts, four clubs, void in spades: the strongest suit
+  // is the long one carrying the ace, and both calls belong in it
+  const twoFives = [
+    C('A','H',id2++),C('K','H',id2++),C('8','H',id2++),C('7','H',id2++),C('6','H',id2++),
+    C('A','D',id2++),C('K','D',id2++),C('9','D',id2++),C('7','D',id2++),C('6','D',id2++),
+    C('A','C',id2++),C('10','C',id2++),C('10','C',id2++),C('8','C',id2++)
+  ];
+  const d1 = declares(twoFives);
+  ok('a void suit is still never trump and never called',
+    d1.trump !== 'S' && d1.calls.every(c => c[c.length - 1] !== 'S'),
+    'trump ' + d1.trump + ', called ' + d1.calls.join(' + '));
+  ok('both calls are made in the trump suit, where partners are useful',
+    d1.calls.every(c => c[c.length - 1] === d1.trump),
+    'trump ' + d1.trump + ', called ' + d1.calls.join(' + '));
+
+  /* Five spades with the ace and a black queen beats six hearts with the same
+     top cards: the hearts are worth nothing and the spades are worth forty. */
+  const spadesOverLength = [
+    C('A','S',id2++),C('K','S',id2++),C('Q','S',id2++),C('6','S',id2++),C('5','S',id2++),
+    C('A','H',id2++),C('K','H',id2++),C('Q','H',id2++),C('Q','H',id2++),C('J','H',id2++),C('5','H',id2++),
+    C('A','C',id2++),C('K','C',id2++),C('J','C',id2++)
+  ];
+  const d2 = declares(spadesOverLength);
+  eq('a shorter spade holding with the queen outranks a longer worthless suit', d2.trump, 'S');
+  ok('and it calls the black queen and the ace of spades',
+    d2.calls.includes('QS') && d2.calls.includes('AS'),
+    'called ' + d2.calls.join(' + '));
+
+  /* The bidder holding a copy of his own called card keeps it back while there
+     is anything else to play, because laying it spends the call and gives away
+     a suit he no longer controls. */
+  const holder = [C('A','H',300), C('7','H',301), C('6','H',302)];
+  const R5 = table([holder, [], [], [], [], []]);
+  R5.phase = 'play'; R5.trump = 'H'; R5.bidder = 0; R5.bidAmount = 125;
+  R5.team = new Set([0]); R5.privateTeam = new Set([0]);
+  R5.called = [{ r: 'A', s: 'H' }, { r: 'K', s: 'H' }]; R5.calledDone = [false, false];
+  R5.leader = 0; R5.lead = null; R5.trick = [];
+  G.botPlay(R5, 0);
+  const laid = R5.trick.length ? R5.trick[0].card : null;
+  ok('the bidder does not lay his own called card while he has another',
+    laid && !(laid.r === 'A' && laid.s === 'H'),
+    'led ' + (laid ? laid.r + laid.s : 'nothing'));
+  stop(R5);
+
+  // length beats raw points: two hands with the same points, different shapes
+  const flat = [
+    C('A','S',1),C('5','S',2),C('10','H',3),C('A','H',4),C('5','D',5),C('10','D',6),
+    C('A','C',7),C('5','C',8),C('6','S',9),C('7','H',10),C('8','D',11),C('9','C',12),
+    C('4','S',13),C('6','H',14)
+  ];
+  const long = [
+    C('A','S',1),C('5','S',2),C('10','S',3),C('A','S',4),C('5','S',5),C('10','S',6),
+    C('A','C',7),C('5','C',8),C('K','S',9),C('J','S',10),C('9','S',11),C('8','S',12),
+    C('7','S',13),C('6','S',14)
+  ];
+  const R3 = table([flat, long, [], [], [], []]);
+  const flatPts = flat.reduce((a, c) => a + G.ptsOf(c), 0);
+  const longPts = long.reduce((a, c) => a + G.ptsOf(c), 0);
+  let flatWins = 0;
+  for (let k = 0; k < 40; k++) if (G.botCeiling(R3, 1) > G.botCeiling(R3, 0)) flatWins++;
+  ok('a long suit is bid higher than the same points spread across four',
+    flatWins >= 34, 'the long hand bid higher in ' + flatWins + ' of 40 deals'
+      + ' (flat holds ' + flatPts + ' pts, long holds ' + longPts + ')');
+  stop(R3);
+
   console.log('\nsaving a table for the next boot');
   const R = G.createRoom(6);
   for (let i = 0; i < 6; i++) {
