@@ -489,6 +489,19 @@ function opponentVoid(R, i, s) {
 function trumpsIn(R, i) {
   return R.players[i].hand.filter(c => c.s === R.trump).length;
 }
+/* Only a spade above the queen takes a black queen off the table. While one is
+   still unaccounted for, the ace and king of spades are worth more as catchers
+   than as ordinary winners: spend the ace on some five point trick early and
+   when the queen finally comes down there is nothing left in the hand that
+   beats it. Holding A♠ 10♠ and nothing else high, the ace is the whole
+   difference between taking twenty and watching it go past. */
+function queenCatcher(R, i, card) {
+  if (card.s !== 'S' || RV[card.r] <= RV.Q) return false;
+  return stillOut(R, i, 'S', 'Q') > 0;
+}
+function trickHasQueen(R) {
+  return R.trick.some(t => t.card.r === 'Q' && t.card.s === 'S');
+}
 /* The black queen is twenty points travelling to whoever wins the trick, so it
    is the one card whose cost has to be weighed against losing, not just its
    chance of winning. It may go down when the trick is already settled — playing
@@ -616,7 +629,15 @@ function botPlay(R, i) {
        and can take it cheaply, or when everyone still to play is void in the
        led suit and the pot is about to be cut away from me anyway. */
     const affordable = winners.filter(c => safeToRisk(R, i, c, last));
-    const usable = affordable.length ? affordable : (last ? winners : []);
+    let usable = affordable.length ? affordable : (last ? winners : []);
+    /* Keep the queen catchers back unless this is the trick worth catching.
+       A queen already on the cloth is exactly what the ace was saved for; so
+       is any trick already carrying a queen's worth of points. Below that,
+       win it with something else or not at all. */
+    if (usable.length && !trickHasQueen(R) && pot < 20) {
+      const spare = usable.filter(c => !queenCatcher(R, i, c));
+      if (spare.length) usable = spare;
+    }
     if (usable.length) {
       const cheapest = usable.slice().sort((a, b) =>
         (a.s === R.trump) - (b.s === R.trump) || RV[a.r] - RV[b.r])[0];
@@ -629,8 +650,11 @@ function botPlay(R, i) {
   /* Throwing away. Points stay in hand where possible, and among equally worthless
      cards the one that empties a suit goes first: a void is what lets the next
      round of that suit be cut. */
-  const junk = opts.filter(c => ptsOf(c) === 0 && c.s !== R.trump);
-  const pool = junk.length ? junk : opts.filter(c => ptsOf(c) === 0);
+  /* The king of spades is worth nothing in itself, so it used to be thrown out
+     as junk. While a queen is still out it is a catcher and must not go. */
+  const junk = opts.filter(c => ptsOf(c) === 0 && c.s !== R.trump && !queenCatcher(R, i, c));
+  const backup = opts.filter(c => ptsOf(c) === 0 && !queenCatcher(R, i, c));
+  const pool = junk.length ? junk : (backup.length ? backup : opts.filter(c => ptsOf(c) === 0));
   const fin = (pool.length ? pool : opts).filter(c => safeToRisk(R, i, c, last));
   const throwable = fin.length ? fin : (pool.length ? pool : opts);
   return doPlay(R, i, throwable.sort((a, b) =>

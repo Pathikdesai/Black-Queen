@@ -105,8 +105,9 @@ On top of that they follow a handful of conventions that came from a player rath
 - As bidder, lead a suit you hold one card of. It empties the suit for cutting later, and if that card is an ace it banks the points while everyone can still follow.
 - Holding a called card, lay it at the first opportunity. Until the partnership is shown, neither of you knows which way to push a trick.
 - The black queen only goes down when the trick is already settled: playing last, with none but partners left to play, or when nothing outstanding can beat her.
+- The ace and king of spades are held back while a black queen is still out. They are the only cards that take one off the table, and spending the ace on a five point trick means having nothing left when the queen finally appears.
 
-Played head to head against the bots that came before them, three a side over 250 games, the current ones score about 9% more and win three tables in five.
+Played head to head against the bots that came before all this, three a side over 250 games, the current ones score about 5% more and win nearly three tables in five. Individual rules were measured the same way; the queen catchers are worth about 3% on their own.
 
 **A restart no longer ends the game.** Tables in progress are written to disk when the server goes down and read back when it comes up. Everyone's phone reconnects on its own and lands in the same seat with the same cards. This covers a crash, a manual restart and the server running out of memory. It does not cover a Render redeploy, because that replaces the whole machine and the file goes with it.
 

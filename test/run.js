@@ -133,6 +133,36 @@ function unitTests() {
     G.safeToRisk(R2, 3, C('Q','S',90), true), '');
   stop(R2);
 
+  /* Holding A♠ 10♠ and nothing else high, the ace is the only card in the hand
+     that beats a black queen. Spend it on some small trick and when the queen
+     finally comes down there is nothing left to take it. So it waits for the
+     trick that is actually worth catching. */
+  function follows(hand, trickCards, played) {
+    const R = table([[], [], [], hand, [], []]);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 130;
+    R.team = new Set([0]); R.privateTeam = new Set([0]);
+    R.called = [{ r: 'A', s: 'D' }, { r: 'K', s: 'D' }]; R.calledDone = [true, true];
+    R.trickNo = 6; R.leader = 0; R.lead = trickCards[0].s;
+    R.trick = trickCards.map((c, n) => ({ p: n, card: c }));
+    trickCards.forEach(c => { R.seen[c.r + c.s] = (R.seen[c.r + c.s] || 0) + 1; });
+    (played || []).forEach(k => { R.seen[k] = (R.seen[k] || 0) + 1; });
+    G.botPlay(R, 3);
+    const out = R.trick.length > trickCards.length ? R.trick[R.trick.length - 1].card : null;
+    stop(R);
+    return out ? out.r + out.s : 'nothing';
+  }
+  let id3 = 0;
+  const catcherHand = () => [
+    C('A','S',id3++),C('10','S',id3++),C('9','S',id3++),C('8','S',id3++),C('7','S',id3++)
+  ];
+  const small = follows(catcherHand(), [C('6','S',70),C('5','S',71),C('4','S',72)]);
+  ok('the ace of spades is kept back from a trick with no queen in it',
+    small !== 'AS', 'played ' + small);
+  const onQueen = follows(catcherHand(), [C('Q','S',73),C('5','S',74),C('4','S',75)]);
+  eq('and spent the moment a black queen is actually on the table', onQueen, 'AS');
+  const bothGone = follows(catcherHand(), [C('6','S',76),C('5','S',77),C('10','S',78)], ['QS','QS']);
+  eq('once both queens are gone it is an ordinary winner again', bothGone, 'AS');
+
   /* Two hands a player talked through, kept here as the reference for what
      declaring should do. Both call cards the bidder is holding, which is the
      point of them: the second copy is out there and whoever has it joins you.
