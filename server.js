@@ -408,83 +408,58 @@ function botBid(R, i) {
   const want = b.high + STEP;
   if (want <= botCeiling(R, i) && want <= MAXBID) doBid(R, i, want); else doPass(R, i);
 }
+/* How good a suit is to own, which is not the same as how long it is. Length
+   is the bulk of it, an ace and a king on top of it are worth about a card and
+   a half between them, and spades carry a premium: each black queen is 20
+   points, and making spades trump is what keeps them yours. A five card spade
+   holding with the ace and queen beats six hearts with the same top cards,
+   because the hearts are worth nothing and the spades are worth forty. */
+function suitStrength(h, s) {
+  const n = h.filter(c => c.s === s).length;
+  if (!n) return -1;
+  const has = r => h.some(c => c.r === r && c.s === s);
+  let v = n + (has('A') ? 1 : 0) + (has('K') ? 0.5 : 0);
+  if (s === 'S') v += 1 + h.filter(c => c.r === 'Q' && c.s === 'S').length * 2;
+  return v;
+}
 function botDeclare(R, i) {
   const h = R.players[i].hand;
   const by = { S: 0, H: 0, D: 0, C: 0 }; h.forEach(c => by[c.s]++);
-  // longest suit, with spades winning any tie: the black queens live there
   let trump = 'S';
-  SUITS.forEach(s => { if (by[s] > by[trump] || (by[s] === by[trump] && s === 'S')) trump = s; });
-  const have = new Set(h.map(c => c.r + c.s));
-  const count = k => h.filter(c => c.r + c.s === k).length;
-  const kingsOf = s => h.filter(c => c.r === 'K' && c.s === s).length;
+  SUITS.forEach(s => { if (suitStrength(h, s) > suitStrength(h, trump)) trump = s; });
 
-  /* Two rules from the table, both about a call being worth something:
+  /* One rule only: never call into a suit you are void in. You can never lay
+     that card yourself, so it comes down whenever somebody else happens to
+     lead the suit and brings you nothing when it does.
 
-     A call in a suit you are void in is dead. You can never lay that card
-     yourself, so the only way it comes down is if somebody else happens to
-     lead the suit, and it brings you nothing when it does.
+     Calling a card you are holding is not a problem, and is often the point:
+     the second copy is still out there, and whoever has it joins you. What you
+     must not then do is lay your own copy — that is handled at play time, not
+     here.
 
-     Calling a card you already hold is not automatically wrong, but it only
-     works when you keep control of the suit behind it. Lay your own copy and
-     the holder of the other one joins you, which is fine if you still hold
-     both kings of that suit; without them you have spent a call to hand the
-     lead somewhere you cannot follow it. */
+     The calls belong in the trump suit wherever possible. Partners found in
+     the suit you control are partners you can actually work with. */
   const cands = [];
-  const worthCalling = s => by[s] > 0;
-  const okToCallHeld = (r, s) => !have.has(r + s) || (count(r + s) === 1 && kingsOf(s) === 2);
-
-  if (worthCalling('S') && okToCallHeld('Q', 'S')) cands.push({ r: 'Q', s: 'S', w: 100 });
   SUITS.forEach(s => {
-    if (!worthCalling(s)) return;
-    if (okToCallHeld('A', s)) cands.push({ r: 'A', s, w: 70 - by[s] * 3 + (s === trump ? 12 : 0) });
+    if (by[s] === 0) return;
+    const trumped = s === trump;
+    if (s === 'S') cands.push({ r: 'Q', s: 'S', w: trumped ? 100 : 84 });
+    cands.push({ r: 'A', s, w: trumped ? 90 : 60 - by[s] * 2 });
+    cands.push({ r: 'K', s, w: trumped ? 75 : 25 - by[s] * 2 });
   });
-  SUITS.forEach(s => {
-    if (!worthCalling(s)) return;
-    if (okToCallHeld('K', s)) cands.push({ r: 'K', s, w: 18 - by[s] * 3 });
-  });
-  /* Last resort, for the one hand in a lifetime that holds every card it could
-     otherwise call: fourteen spades carrying both aces, both kings and both
-     queens leaves nothing legal to name, and the contract still has to be
-     declared. Two calls must always exist.
-
-     These sit a thousand below everything else on purpose. A vetted candidate
-     can score negative — a king in a seven card suit comes out at -3 — and
-     when the fallbacks were merely low they outranked it and broke a rule
-     while a legal call was sitting right there. Being unreachable except on an
-     empty list is the whole point of a fallback. */
-  SUITS.forEach(s => cands.push({
-    r: 'A', s,
-    w: -1000 + (worthCalling(s) ? 4 : 0) + (have.has('A' + s) ? 0 : 2)
-  }));
   cands.sort((a, b) => b.w - a.w);
   const seen = new Set(), pick = [];
-  // first pass takes only cards that satisfied both rules
   for (const c of cands) {
-    if (c.w < -900) break;
     const k = c.r + c.s;
     if (seen.has(k)) continue;
     seen.add(k); pick.push(c);
     if (pick.length === 2) break;
   }
-  /* Only one card came through the rules — a hand void in a suit and holding
-     most of the aces and kings in the others does this. Rather than break a
-     rule to find a second call, name the same card twice: the rules allow it
-     and each copy brings in its own partner, so the side ends up the same size
-     it would have been. Not a 4, which exists only once in the deck, and not a
-     card already in hand, where laying your own copy makes the two calls
-     interfere with each other. */
-  if (pick.length === 1 && pick[0].r !== '4' && !have.has(pick[0].r + pick[0].s)) {
-    pick.push(pick[0]);
-  }
-  // still short: now the rules have to give, least damaging first
-  if (pick.length < 2) {
-    for (const c of cands) {
-      const k = c.r + c.s;
-      if (seen.has(k)) continue;
-      seen.add(k); pick.push(c);
-      if (pick.length === 2) break;
-    }
-  }
+  /* Any hand holding cards at all has at least an ace and a king to name in
+     some suit, so this cannot run short. Kept as a guard rather than a plan:
+     naming one card twice is legal and brings in a partner on each copy. */
+  if (pick.length === 1 && pick[0].r !== '4') pick.push(pick[0]);
+  if (!pick.length) { pick.push({ r: 'A', s: trump }, { r: 'K', s: trump }); }
   doDeclare(R, i, trump, [{ r: pick[0].r, s: pick[0].s }, { r: pick[1].r, s: pick[1].s }]);
 }
 function knownMate(R, i, j) {
@@ -541,10 +516,23 @@ function trumpsOut(R, i) {
   return n;
 }
 
+/* The bidder called a card he is holding a copy of, and this is that copy.
+   Laying it himself spends the call: the holder of the other copy joins, but
+   the bidder has handed away the lead in a suit he no longer controls. Holding
+   both kings of the suit means he still controls it, and then it does not
+   matter. So keep it back while there is anything else to play. */
+function ownCallToHold(R, i, card) {
+  if (i !== R.bidder) return false;
+  const open = R.called.some((cc, k) => !R.calledDone[k] && cc.r === card.r && cc.s === card.s);
+  if (!open) return false;
+  return R.players[i].hand.filter(c => c.r === 'K' && c.s === card.s).length < 2;
+}
 function botPlay(R, i) {
   const hand = R.players[i].hand;
-  const opts = legal(hand, R.lead);
-  if (!opts.length) return;
+  const playable = legal(hand, R.lead);
+  if (!playable.length) return;
+  const spare = playable.filter(c => !ownCallToHold(R, i, c));
+  const opts = spare.length ? spare : playable;
   const pot = R.trick.reduce((a, t) => a + ptsOf(t.card), 0);
   const last = R.trick.length === R.n - 1;
   const bySuit = s => hand.filter(c => c.s === s).length;

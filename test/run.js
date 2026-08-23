@@ -133,31 +133,64 @@ function unitTests() {
     G.safeToRisk(R2, 3, C('Q','S',90), true), '');
   stop(R2);
 
-  /* A hand void in one suit that holds most of the aces and kings in the others
-     leaves only one card the rules allow it to call. Rather than break a rule
-     to find a second, it names the same card twice: the rules permit that and
-     each copy brings in its own partner. This exact hand used to call an ace it
-     was holding. */
+  /* Two hands a player talked through, kept here as the reference for what
+     declaring should do. Both call cards the bidder is holding, which is the
+     point of them: the second copy is out there and whoever has it joins you.
+     Holding a called card is fine — laying it yourself is the mistake, and
+     that is a play rule, tested further down. */
+  function declares(hand, bidder) {
+    const R = table([hand, [], [], [], [], []]);
+    R.phase = 'declare'; R.bidder = 0; R.bidAmount = 125;
+    R.team = new Set([0]); R.privateTeam = new Set([0]);
+    G.botDeclare(R, 0);
+    const out = { trump: R.trump, calls: (R.called || []).map(c => c && c.r + c.s) };
+    stop(R);
+    return out;
+  }
   let id2 = 0;
-  const starved = [
+  // five diamonds, five hearts, four clubs, void in spades: the strongest suit
+  // is the long one carrying the ace, and both calls belong in it
+  const twoFives = [
     C('A','H',id2++),C('K','H',id2++),C('8','H',id2++),C('7','H',id2++),C('6','H',id2++),
     C('A','D',id2++),C('K','D',id2++),C('9','D',id2++),C('7','D',id2++),C('6','D',id2++),
     C('A','C',id2++),C('10','C',id2++),C('10','C',id2++),C('8','C',id2++)
   ];
-  const R4 = table([starved, [], [], [], [], []]);
-  R4.phase = 'declare'; R4.bidder = 0; R4.bidAmount = 125;
-  R4.team = new Set([0]); R4.privateTeam = new Set([0]);
-  G.botDeclare(R4, 0);
-  const c4 = R4.called || [];
-  const held4 = new Set(starved.map(c => c.r + c.s));
-  ok('a hand with only one legal call names it twice rather than break a rule',
-    c4.length === 2 && c4[0].r === c4[1].r && c4[0].s === c4[1].s,
-    'called ' + c4.map(c => c && c.r + c.s).join(' + '));
-  ok('and that doubled call is not a card it is holding',
-    c4.length === 2 && !held4.has(c4[0].r + c4[0].s),
-    'called ' + (c4[0] && c4[0].r + c4[0].s));
-  ok('nor a 4, which exists only once in the deck', c4.length === 2 && c4[0].r !== '4', '');
-  stop(R4);
+  const d1 = declares(twoFives);
+  ok('a void suit is still never trump and never called',
+    d1.trump !== 'S' && d1.calls.every(c => c[c.length - 1] !== 'S'),
+    'trump ' + d1.trump + ', called ' + d1.calls.join(' + '));
+  ok('both calls are made in the trump suit, where partners are useful',
+    d1.calls.every(c => c[c.length - 1] === d1.trump),
+    'trump ' + d1.trump + ', called ' + d1.calls.join(' + '));
+
+  /* Five spades with the ace and a black queen beats six hearts with the same
+     top cards: the hearts are worth nothing and the spades are worth forty. */
+  const spadesOverLength = [
+    C('A','S',id2++),C('K','S',id2++),C('Q','S',id2++),C('6','S',id2++),C('5','S',id2++),
+    C('A','H',id2++),C('K','H',id2++),C('Q','H',id2++),C('Q','H',id2++),C('J','H',id2++),C('5','H',id2++),
+    C('A','C',id2++),C('K','C',id2++),C('J','C',id2++)
+  ];
+  const d2 = declares(spadesOverLength);
+  eq('a shorter spade holding with the queen outranks a longer worthless suit', d2.trump, 'S');
+  ok('and it calls the black queen and the ace of spades',
+    d2.calls.includes('QS') && d2.calls.includes('AS'),
+    'called ' + d2.calls.join(' + '));
+
+  /* The bidder holding a copy of his own called card keeps it back while there
+     is anything else to play, because laying it spends the call and gives away
+     a suit he no longer controls. */
+  const holder = [C('A','H',300), C('7','H',301), C('6','H',302)];
+  const R5 = table([holder, [], [], [], [], []]);
+  R5.phase = 'play'; R5.trump = 'H'; R5.bidder = 0; R5.bidAmount = 125;
+  R5.team = new Set([0]); R5.privateTeam = new Set([0]);
+  R5.called = [{ r: 'A', s: 'H' }, { r: 'K', s: 'H' }]; R5.calledDone = [false, false];
+  R5.leader = 0; R5.lead = null; R5.trick = [];
+  G.botPlay(R5, 0);
+  const laid = R5.trick.length ? R5.trick[0].card : null;
+  ok('the bidder does not lay his own called card while he has another',
+    laid && !(laid.r === 'A' && laid.s === 'H'),
+    'led ' + (laid ? laid.r + laid.s : 'nothing'));
+  stop(R5);
 
   // length beats raw points: two hands with the same points, different shapes
   const flat = [

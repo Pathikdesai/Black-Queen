@@ -98,13 +98,15 @@ On top of that they follow a handful of conventions that came from a player rath
 
 - Length wins hands, not points in hand. Length in spades counts double, since the black queens ride in that suit.
 - Bid up one step at a time. A strong hand takes the auction anyway, and every five it climbs is five more to find later.
+- Trump is the suit you are strongest in, not simply the longest. Five spades with the ace and a black queen beats six hearts with the same top cards, because the hearts are worth nothing and the spades are worth forty.
 - Never call a card in a suit you are void in; that call can never come down.
-- Only call a card you hold if you keep both kings of the suit behind it.
+- Call in the trump suit where you can. A partner found in the suit you control is a partner you can work with.
+- Calling a card you are holding is fine — the second copy is out there and whoever has it joins you. Laying your own copy is the mistake, so the bidder keeps it back while he has anything else to play.
 - As bidder, lead a suit you hold one card of. It empties the suit for cutting later, and if that card is an ace it banks the points while everyone can still follow.
 - Holding a called card, lay it at the first opportunity. Until the partnership is shown, neither of you knows which way to push a trick.
 - The black queen only goes down when the trick is already settled: playing last, with none but partners left to play, or when nothing outstanding can beat her.
 
-Played head to head against the previous bots, three a side over 200 games, the current ones score about 16% more and win two tables in three.
+Played head to head against the bots that came before them, three a side over 250 games, the current ones score about 9% more and win three tables in five.
 
 **A restart no longer ends the game.** Tables in progress are written to disk when the server goes down and read back when it comes up. Everyone's phone reconnects on its own and lands in the same seat with the same cards. This covers a crash, a manual restart and the server running out of memory. It does not cover a Render redeploy, because that replaces the whole machine and the file goes with it.
 
