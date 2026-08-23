@@ -75,6 +75,85 @@ function unitTests() {
   ok('it unmutes again afterwards', /\.muted\s*=\s*false/.test(prime), '');
   ok('and a clip wanted for real is spared the prime\'s pause', /_priming/.test(prime), '');
 
+  /* The bots play to rules a person at the table gave us, not to anything that
+     can be derived from the rulebook. They are worth pinning down, because a
+     later tidy-up could quietly undo one and nothing else would notice. */
+  console.log('\nthe bots keep to the table rules');
+  const C = (r, s, id) => ({ r, s, id });
+  function table(hands) {
+    const R = G.createRoom(6);
+    hands.forEach((h, i) => R.players.push({
+      name: 'B' + i, token: 'tok' + i, bot: true, connected: true,
+      ws: null, score: 0, hand: h, won: 0
+    }));
+    R.hostToken = 'tok0';
+    R.n = 6; R.handSize = 14; R.totalDeals = 9; R.dealNo = 1; R.dealer = 5;
+    R.trick = []; R.lead = null; R.leader = 0; R.trickNo = 1;
+    R.team = new Set(); R.privateTeam = new Set();
+    R.called = [null, null]; R.calledDone = [false, false];
+    R.seen = {}; R.voids = hands.map(() => new Set());
+    R.cuts = {}; R.partnerAt = [null, null]; R.bigTrick = null;
+    return R;
+  }
+  function stop(R) { clearTimeout(R.timer); clearTimeout(R.slowTimer); G.rooms.delete(R.code); }
+
+  // a bidder void in clubs must not call a club: that call can never come down
+  let id = 0;
+  const voidHand = [
+    C('A','S',id++),C('K','S',id++),C('Q','S',id++),C('J','S',id++),C('10','S',id++),
+    C('9','S',id++),C('8','S',id++),C('A','H',id++),C('K','H',id++),C('7','H',id++),
+    C('A','D',id++),C('K','D',id++),C('6','D',id++),C('5','D',id++)
+  ];
+  const R1 = table([voidHand, [], [], [], [], []]);
+  R1.phase = 'declare'; R1.bidder = 0; R1.bidAmount = 130;
+  R1.team = new Set([0]); R1.privateTeam = new Set([0]);
+  G.botDeclare(R1, 0);
+  const calls = R1.called || [];
+  ok('a bidder void in clubs never calls a club',
+    calls.length === 2 && calls.every(c => c.s !== 'C'),
+    'called ' + calls.map(c => c && c.r + c.s).join(' + '));
+  ok('and calls two real cards anyway', calls.length === 2 && calls[0] && calls[1], '');
+  stop(R1);
+
+  /* The black queen carries 20 points to whoever wins the trick, so it may only
+     go down when the trick is already decided. Same seat, same cards, two
+     different situations. */
+  const qHand = [C('Q','S',90), C('Q','S',91), C('8','S',92)];
+  const R2 = table([[], [], [], qHand, [], []]);
+  R2.phase = 'play'; R2.trump = 'S'; R2.bidder = 3; R2.bidAmount = 135;
+  R2.team = new Set([3]); R2.privateTeam = new Set([3]);
+  R2.calledDone = [true, true]; R2.called = [C('A','D',0), C('K','D',0)];
+  R2.leader = 0; R2.lead = 'S';
+  R2.trick = [{ p: 0, card: C('J','S',80) }, { p: 1, card: C('7','S',81) }, { p: 2, card: C('5','C',82) }];
+  const risky = G.safeToRisk(R2, 3, C('Q','S',90), false);
+  ok('the queen is refused with opponents still to play and a higher spade out', !risky, '');
+  const spare = G.safeToRisk(R2, 3, C('8','S',92), false);
+  ok('an ordinary spade in the same spot is fine', spare, '');
+  ok('and the queen is allowed from the last seat, where nothing can beat it',
+    G.safeToRisk(R2, 3, C('Q','S',90), true), '');
+  stop(R2);
+
+  // length beats raw points: two hands with the same points, different shapes
+  const flat = [
+    C('A','S',1),C('5','S',2),C('10','H',3),C('A','H',4),C('5','D',5),C('10','D',6),
+    C('A','C',7),C('5','C',8),C('6','S',9),C('7','H',10),C('8','D',11),C('9','C',12),
+    C('4','S',13),C('6','H',14)
+  ];
+  const long = [
+    C('A','S',1),C('5','S',2),C('10','S',3),C('A','S',4),C('5','S',5),C('10','S',6),
+    C('A','C',7),C('5','C',8),C('K','S',9),C('J','S',10),C('9','S',11),C('8','S',12),
+    C('7','S',13),C('6','S',14)
+  ];
+  const R3 = table([flat, long, [], [], [], []]);
+  const flatPts = flat.reduce((a, c) => a + G.ptsOf(c), 0);
+  const longPts = long.reduce((a, c) => a + G.ptsOf(c), 0);
+  let flatWins = 0;
+  for (let k = 0; k < 40; k++) if (G.botCeiling(R3, 1) > G.botCeiling(R3, 0)) flatWins++;
+  ok('a long suit is bid higher than the same points spread across four',
+    flatWins >= 34, 'the long hand bid higher in ' + flatWins + ' of 40 deals'
+      + ' (flat holds ' + flatPts + ' pts, long holds ' + longPts + ')');
+  stop(R3);
+
   console.log('\nsaving a table for the next boot');
   const R = G.createRoom(6);
   for (let i = 0; i < 6; i++) {
