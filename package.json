@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node test/run.js",
-    "icons": "node tools/make-icons.js"
+    "icons": "node tools/make-icons.js",
+    "tune": "node tools/tune.js"
   },
   "dependencies": { "ws": "^8.18.0" }
 }
