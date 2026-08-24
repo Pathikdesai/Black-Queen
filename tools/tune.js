@@ -154,7 +154,6 @@ const KNOBS = {
   callQueenTrump: [40, 110, 4], callQueenOff: [0, 100, 4], callQueenHeld: [0, 40, 2],
   callAceTrump: [40, 110, 4], callAceOff: [20, 100, 4], callAceHeld: [0, 30, 2],
   callKingTrump: [20, 100, 4], callKingOff: [0, 60, 3], callKingHeld: [0, 20, 2],
-  holdBackup: [10, 14, 1],
   drawTrumpsFrom: [2, 8, 1], catcherPot: [0, 45, 5],
   revealSuitOut: [0, 10, 1], cheapWinner: [6, 14, 1]
 };

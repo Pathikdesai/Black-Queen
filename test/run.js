@@ -278,11 +278,12 @@ function unitTests() {
     'played ' + (held7 ? held7.r + held7.s : 'nothing'));
   stop(R7);
 
-  /* Laying your own called card spends the call to gain a partner, and the
-     price is the suit. Worth paying only when the suit stays yours afterwards:
-     A-K goes down happily because the king still holds it, A-then-10 does not,
-     because once the ace is gone the king and queen are both still out. A long
-     enough holding wins the later rounds by weight of cards either way. */
+  /* The bidder's own copy of a called card never goes down. There is no
+     version of laying it that is worth the ace: even with the king behind it,
+     leading the king does the same job better — whoever holds the other copy
+     has to spend it to win the trick, so the partnership comes out anyway,
+     while the ace stays in hand for the big card that turns up later. And the
+     opposition is a round of the suit lighter for it. */
   let id5 = 700;
   function bidderLeads(hand) {
     const R = table([hand, [], [], [], [], []]);
@@ -295,25 +296,28 @@ function unitTests() {
     stop(R);
     return led ? led.r + led.s : 'nothing';
   }
+  const H = (...ranks) => ranks.map(r => C(r, 'H', id5++));
+  const filler = () => [
+    C('9','S',id5++),C('8','S',id5++),C('7','S',id5++),C('6','S',id5++),C('5','S',id5++),
+    C('9','D',id5++),C('8','D',id5++),C('7','D',id5++)
+  ];
   // no singletons in any of these, or the lead-your-singleton rule answers first
-  const gap = ['A H','10 H','7 H','6 H','5 H','9 S','8 S','7 S','6 S','5 S','4 S','9 D','8 D','7 D']
-    .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
+  const gap = [...H('A','10','7','6','5'), ...filler().slice(0, 9)];
   ok('an ace with a gap under it is kept back', bidderLeads(gap) !== 'AH',
     'led ' + bidderLeads(gap));
 
-  const backed = ['A H','K H','10 H','7 H','6 H','9 S','8 S','7 S','6 S','5 S','4 S','9 D','8 D','7 D']
-    .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
-  eq('an ace with the king behind it goes down', bidderLeads(backed), 'AH');
+  const backed = [...H('A','K','10','7','6'), ...filler().slice(0, 9)];
+  eq('an ace with the king behind it leads the king, not the ace',
+    bidderLeads(backed), 'KH');
 
-  const twoAces = ['A H','A H','10 H','7 H','6 H','9 S','8 S','7 S','6 S','5 S','4 S','9 D','8 D','7 D']
-    .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
-  eq('holding both aces, laying one keeps control', bidderLeads(twoAces), 'AH');
+  const twoAces = [...H('A','A','10','7','6'), ...filler().slice(0, 9)];
+  ok('holding both aces is still no reason to spend one',
+    bidderLeads(twoAces) !== 'AH', 'led ' + bidderLeads(twoAces));
 
   /* Length looks like a reason to spend the ace and is the opposite. A long
      suit already has small cards for the routine work; what it does not have is
      anything else that beats a big card later. Cut with the low ones. */
-  const sevenLong = ['A H','10 H','9 H','8 H','7 H','6 H','5 H','9 S','8 S','7 S','6 S','5 S','9 D','8 D']
-    .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
+  const sevenLong = [...H('A','10','9','8','7','6','5'), ...filler().slice(0, 7)];
   ok('seven cards is a reason to keep the ace, not to spend it',
     bidderLeads(sevenLong) !== 'AH', 'led ' + bidderLeads(sevenLong));
 

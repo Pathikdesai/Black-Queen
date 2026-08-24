@@ -389,7 +389,6 @@ const TUNE = {
   callAceTrump: 90, callAceOff: 60, callAceLen: 2, callAceHeld: 8,
   callKingTrump: 70, callKingOff: 25, callKingLen: 2, callKingHeld: 6,
   // how to play them
-  holdBackup: 13,      // rank that must sit behind your own called card (13 = a king)
   drawTrumpsFrom: 4,   // trumps in hand before leading them out
   catcherPot: 20,      // pot worth spending a queen catcher on
   revealSuitOut: 4,    // cards of a side suit still out before laying a called one
@@ -604,33 +603,15 @@ function trumpsOut(R, i) {
   return n;
 }
 
-/* Whether laying your own called card leaves you still holding the suit.
-
-   Lay the ace and the card behind it had better be able to win the suit
-   afterwards. A king does that. A ten does not: once the ace is gone the king
-   and the queen are both still out there and the suit has walked away, along
-   with the lead. So A-K goes down happily and A-then-10 waits.
-
-   Length is not a way out of that, which is the opposite of what it looks like.
-   A long suit is a reason to keep the ace, not to spend it: you already have
-   small cards for the routine work, and the one thing they cannot do is beat
-   something big when it finally appears. Cut with the low ones and keep the ace
-   for what it is actually for. */
-function keepsSuitControl(R, i, card) {
-  const T = tuneOf(R, i);
-  const rest = R.players[i].hand.filter(c => c.s === card.s && c.id !== card.id);
-  if (!rest.length) return false;
-  return Math.max(...rest.map(c => RV[c.r])) >= T.holdBackup;
-}
-/* The bidder called a card he is holding a copy of, and this is that copy.
-   Laying it himself spends the call: the holder of the other copy joins him,
-   but only at the price of the suit. Worth paying when the suit stays his,
-   not otherwise, so it waits while there is anything else to play. */
+/* The bidder called a card he is holding a copy of, and this is that copy. It
+   never goes down. There is no version of laying it that is worth the ace:
+   even with the king sitting behind it, leading the king does the same job
+   better — the holder of the other copy has to spend it to win the trick,
+   which brings them out as a partner just the same, while the ace stays in
+   hand for the big card that turns up later. */
 function ownCallToHold(R, i, card) {
   if (i !== R.bidder) return false;
-  const open = R.called.some((cc, k) => !R.calledDone[k] && cc.r === card.r && cc.s === card.s);
-  if (!open) return false;
-  return !keepsSuitControl(R, i, card);
+  return R.called.some((cc, k) => !R.calledDone[k] && cc.r === card.r && cc.s === card.s);
 }
 function botPlay(R, i) {
   const T = tuneOf(R, i);
@@ -673,8 +654,20 @@ function botPlay(R, i) {
     if (i === R.bidder && !(R.calledDone[0] && R.calledDone[1])) {
       for (let k = 0; k < 2; k++) {
         if (R.calledDone[k]) continue;
-        const s = R.called[k].s;
-        const feeler = opts.filter(c => c.s === s && ptsOf(c) === 0)
+        const cc = R.called[k];
+        const inSuit = opts.filter(c => c.s === cc.s);
+        if (!inSuit.length) continue;
+        /* Holding the called card myself, the card to lead is the one just
+           below it, not the card itself. Whoever has the other copy must spend
+           it to win the trick, so the partnership comes out anyway, my own copy
+           stays where it is, and the opposition is a round of the suit lighter
+           for it. */
+        if (hand.some(c => c.r === cc.r && c.s === cc.s)) {
+          const below = inSuit.filter(c => RV[c.r] < RV[cc.r])
+            .sort((a, b) => RV[b.r] - RV[a.r])[0];
+          if (below) return doPlay(R, i, below.id);
+        }
+        const feeler = inSuit.filter(c => ptsOf(c) === 0)
           .sort((a, b) => RV[a.r] - RV[b.r])[0];
         if (feeler) return doPlay(R, i, feeler.id);
       }
