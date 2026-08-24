@@ -278,21 +278,41 @@ function unitTests() {
     'played ' + (held7 ? held7.r + held7.s : 'nothing'));
   stop(R7);
 
-  /* The bidder holding a copy of his own called card keeps it back while there
-     is anything else to play, because laying it spends the call and gives away
-     a suit he no longer controls. */
-  const holder = [C('A','H',300), C('7','H',301), C('6','H',302)];
-  const R5 = table([holder, [], [], [], [], []]);
-  R5.phase = 'play'; R5.trump = 'H'; R5.bidder = 0; R5.bidAmount = 125;
-  R5.team = new Set([0]); R5.privateTeam = new Set([0]);
-  R5.called = [{ r: 'A', s: 'H' }, { r: 'K', s: 'H' }]; R5.calledDone = [false, false];
-  R5.leader = 0; R5.lead = null; R5.trick = [];
-  G.botPlay(R5, 0);
-  const laid = R5.trick.length ? R5.trick[0].card : null;
-  ok('the bidder does not lay his own called card while he has another',
-    laid && !(laid.r === 'A' && laid.s === 'H'),
-    'led ' + (laid ? laid.r + laid.s : 'nothing'));
-  stop(R5);
+  /* Laying your own called card spends the call to gain a partner, and the
+     price is the suit. Worth paying only when the suit stays yours afterwards:
+     A-K goes down happily because the king still holds it, A-then-10 does not,
+     because once the ace is gone the king and queen are both still out. A long
+     enough holding wins the later rounds by weight of cards either way. */
+  let id5 = 700;
+  function bidderLeads(hand) {
+    const R = table([hand, [], [], [], [], []]);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 130;
+    R.team = new Set([0]); R.privateTeam = new Set([0]);
+    R.called = [{ r: 'A', s: 'H' }, { r: 'K', s: 'D' }]; R.calledDone = [false, false];
+    R.trickNo = 3; R.leader = 0; R.lead = null; R.trick = [];
+    G.botPlay(R, 0);
+    const led = R.trick.length ? R.trick[0].card : null;
+    stop(R);
+    return led ? led.r + led.s : 'nothing';
+  }
+  // no singletons in any of these, or the lead-your-singleton rule answers first
+  const gap = ['A H','10 H','7 H','6 H','5 H','9 S','8 S','7 S','6 S','5 S','4 S','9 D','8 D','7 D']
+    .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
+  ok('an ace with a gap under it is kept back', bidderLeads(gap) !== 'AH',
+    'led ' + bidderLeads(gap));
+
+  const backed = ['A H','K H','10 H','7 H','6 H','9 S','8 S','7 S','6 S','5 S','4 S','9 D','8 D','7 D']
+    .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
+  eq('an ace with the king behind it goes down', bidderLeads(backed), 'AH');
+
+  const twoAces = ['A H','A H','10 H','7 H','6 H','9 S','8 S','7 S','6 S','5 S','4 S','9 D','8 D','7 D']
+    .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
+  eq('holding both aces, laying one keeps control', bidderLeads(twoAces), 'AH');
+
+  const sevenLong = ['A H','10 H','9 H','8 H','7 H','6 H','5 H','9 S','8 S','7 S','6 S','5 S','9 D','8 D']
+    .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
+  eq('a seven card suit carries itself whatever sits under the ace',
+    bidderLeads(sevenLong), 'AH');
 
   // length beats raw points: two hands with the same points, different shapes
   const flat = [

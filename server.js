@@ -389,6 +389,8 @@ const TUNE = {
   callAceTrump: 90, callAceOff: 60, callAceLen: 2, callAceHeld: 8,
   callKingTrump: 70, callKingOff: 25, callKingLen: 2, callKingHeld: 6,
   // how to play them
+  holdBackup: 13,      // rank that must sit behind your own called card (13 = a king)
+  holdLongSuit: 7,     // suit length that carries itself regardless of the backup
   drawTrumpsFrom: 4,   // trumps in hand before leading them out
   catcherPot: 20,      // pot worth spending a queen catcher on
   revealSuitOut: 4,    // cards of a side suit still out before laying a called one
@@ -603,16 +605,32 @@ function trumpsOut(R, i) {
   return n;
 }
 
+/* Whether laying your own called card leaves you still holding the suit.
+
+   Lay the ace and the card behind it had better be able to win the suit
+   afterwards. A king does that. A ten does not: once the ace is gone the king
+   and the queen are both still out there and the suit has walked away, along
+   with the lead. So A-K goes down happily and A-then-10 waits.
+
+   Length is the way out. A long enough holding wins the later rounds by weight
+   of cards whatever the top of it looks like, so the backup stops mattering. */
+function keepsSuitControl(R, i, card) {
+  const T = tuneOf(R, i);
+  const suit = R.players[i].hand.filter(c => c.s === card.s);
+  if (suit.length >= T.holdLongSuit) return true;
+  const rest = suit.filter(c => c.id !== card.id);
+  if (!rest.length) return false;
+  return Math.max(...rest.map(c => RV[c.r])) >= T.holdBackup;
+}
 /* The bidder called a card he is holding a copy of, and this is that copy.
-   Laying it himself spends the call: the holder of the other copy joins, but
-   the bidder has handed away the lead in a suit he no longer controls. Holding
-   both kings of the suit means he still controls it, and then it does not
-   matter. So keep it back while there is anything else to play. */
+   Laying it himself spends the call: the holder of the other copy joins him,
+   but only at the price of the suit. Worth paying when the suit stays his,
+   not otherwise, so it waits while there is anything else to play. */
 function ownCallToHold(R, i, card) {
   if (i !== R.bidder) return false;
   const open = R.called.some((cc, k) => !R.calledDone[k] && cc.r === card.r && cc.s === card.s);
   if (!open) return false;
-  return R.players[i].hand.filter(c => c.r === 'K' && c.s === card.s).length < 2;
+  return !keepsSuitControl(R, i, card);
 }
 function botPlay(R, i) {
   const T = tuneOf(R, i);
