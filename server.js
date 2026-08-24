@@ -515,9 +515,24 @@ function botDeclare(R, i) {
   if (!pick.length) { pick.push({ r: 'A', s: trump }, { r: 'K', s: trump }); }
   doDeclare(R, i, trump, [{ r: pick[0].r, s: pick[0].s }, { r: pick[1].r, s: pick[1].s }]);
 }
+/* Holding a called card that has not come down yet. The calls are announced to
+   the whole table and you can see your own hand, so working out that you are
+   going to be the bidder's partner is deduction anybody at the table can make,
+   not a look at somebody else's cards. */
+function holdsOpenCall(R, i) {
+  const p = R.players[i];
+  if (!p || !R.called) return false;
+  return R.called.some((cc, k) =>
+    cc && !R.calledDone[k] && p.hand.some(c => c.r === cc.r && c.s === cc.s));
+}
 function knownMate(R, i, j) {
   if (R.team.has(i) && R.team.has(j)) return true;
-  if (R.privateTeam.has(i) && (j === R.bidder || R.team.has(j))) return true;
+  /* Until this fix a player sitting on the called ace did not know whose side
+     he was on, so he would cheerfully beat the bidder's king with it — taking
+     a trick off the partner he was about to become, with the one card he most
+     wanted to keep. */
+  const onSide = R.privateTeam.has(i) || holdsOpenCall(R, i);
+  if (onSide && (j === R.bidder || R.team.has(j))) return true;
   return false;
 }
 
@@ -710,8 +725,13 @@ function botPlay(R, i) {
   }
   /* Holding a called card and not yet shown: lay it at the first chance rather
      than sitting on it. Coming in late costs the side points, because until the
-     bidder knows who you are neither of you knows which way to push a trick. */
-  if (!R.team.has(i)) {
+     bidder knows who you are neither of you knows which way to push a trick.
+
+     Not onto a trick the bidder is already taking, though. He led under the
+     card he called, which usually means he is holding the other copy, so his
+     king is winning anyway. Spending the ace there gains the side nothing and
+     costs it the ace. Wait for a trick that needs it. */
+  if (!R.team.has(i) && !friendly) {
     for (let k = 0; k < 2; k++) {
       if (R.calledDone[k]) continue;
       const cc = R.called[k];

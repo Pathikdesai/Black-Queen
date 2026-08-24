@@ -237,6 +237,42 @@ function unitTests() {
     thrown && thrown.s !== 'S', 'played ' + (thrown ? thrown.r + thrown.s : 'nothing'));
   stop(R6);
 
+  /* Holding a called card that has not come down makes you the bidder's partner
+     and you can work that out yourself: the calls are announced and you can see
+     your own hand. Without that the bot took the bidder for an opponent and beat
+     his king with the very ace it was about to partner him with. */
+  let id9 = 900;
+  function partnerPlays(hand, trick, leader) {
+    const R = table([[], [], [], hand, [], []]);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 130;
+    R.team = new Set([0]); R.privateTeam = new Set([0]);
+    R.called = [{ r: 'A', s: 'H' }, { r: 'K', s: 'D' }]; R.calledDone = [false, false];
+    R.trickNo = 4; R.leader = leader; R.lead = trick[0].s;
+    R.trick = trick.map((c, n) => ({ p: (leader + n) % 6, card: c }));
+    trick.forEach(c => { R.seen[c.r + c.s] = (R.seen[c.r + c.s] || 0) + 1; });
+    const mate = G.knownMate(R, 3, 0);
+    G.botPlay(R, 3);
+    const out = R.trick.length > trick.length ? R.trick[R.trick.length - 1].card : null;
+    stop(R);
+    return { mate, played: out ? out.r + out.s : 'nothing' };
+  }
+  const aceHand = () => [
+    C('A','H',id9++),C('9','H',id9++),C('6','H',id9++),
+    C('8','C',id9++),C('7','C',id9++),C('9','D',id9++)
+  ];
+  const onBidder = partnerPlays(aceHand(),
+    [C('K','H',960), C('5','H',961), C('4','H',962)], 0);
+  ok('holding the called ace, you know the bidder is your side', onBidder.mate, '');
+  ok('and you do not beat his king with it', onBidder.played !== 'AH',
+    'played ' + onBidder.played);
+
+  const onOpponent = partnerPlays(aceHand(), [C('Q','H',963), C('10','H',964)], 1);
+  eq('but an opponent holding the trick is worth the ace', onOpponent.played, 'AH');
+
+  const bidderBeaten = partnerPlays(aceHand(),
+    [C('K','H',965), C('5','H',966), C('A','H',967)], 0);
+  eq('and so is a bidder who has already been beaten', bidderBeaten.played, 'AH');
+
   /* A partner has already cut the trick, so the points are coming to your side
      whatever you do. Throwing a trump on top of that is gone for nothing, even
      when the trump carries points itself — that card could have cut a whole
