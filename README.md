@@ -96,7 +96,7 @@ Phones need one tap anywhere before audio can start. That is a browser rule, not
 
 On top of that they follow a handful of conventions that came from a player rather than from the rulebook:
 
-- Length wins hands, not points in hand. Length in spades counts double, since the black queens ride in that suit.
+- Length wins hands, not points in hand. Length in spades counts for a little more than length elsewhere, since the black queens ride in that suit.
 - Bid up one step at a time. A strong hand takes the auction anyway, and every five it climbs is five more to find later.
 - Trump is the suit you are strongest in, not simply the longest. Five spades with the ace and a black queen beats six hearts with the same top cards, because the hearts are worth nothing and the spades are worth forty. A black queen only argues for spades when there are enough spades behind it to protect her: three spades and a queen is not a spade hand.
 - Never call a card in a suit you are void in; that call can never come down.
