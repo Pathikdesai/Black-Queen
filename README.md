@@ -15,6 +15,7 @@ The cards live on the server. Each phone only ever receives its own hand, so nob
 | `public/manifest.webmanifest`, `public/icons/` | Lets phones add the game to the home screen. |
 | `test/run.js` | The test suite. `npm test`. |
 | `tools/make-icons.js` | Redraws the icons. Only needed if you change the artwork. |
+| `tools/tune.js` | Searches for better bot strategy numbers by replaying fixed deals. `npm run tune`. |
 | `package.json` | Tells the host how to run it. |
 
 ---
@@ -96,18 +97,28 @@ Phones need one tap anywhere before audio can start. That is a browser rule, not
 
 On top of that they follow a handful of conventions that came from a player rather than from the rulebook:
 
-- Length wins hands, not points in hand. Length in spades counts double, since the black queens ride in that suit.
+- Length wins hands, not points in hand. Length in spades counts for a little more than length elsewhere, since the black queens ride in that suit.
 - Bid up one step at a time. A strong hand takes the auction anyway, and every five it climbs is five more to find later.
-- Trump is the suit you are strongest in, not simply the longest. Five spades with the ace and a black queen beats six hearts with the same top cards, because the hearts are worth nothing and the spades are worth forty.
+- Trump is the suit you are strongest in, not simply the longest. Five spades with the ace and a black queen beats six hearts with the same top cards, because the hearts are worth nothing and the spades are worth forty. A black queen only argues for spades when there are enough spades behind it to protect her: three spades and a queen is not a spade hand.
 - Never call a card in a suit you are void in; that call can never come down.
 - Call in the trump suit where you can. A partner found in the suit you control is a partner you can work with.
 - Calling a card you are holding is fine — the second copy is out there and whoever has it joins you. Laying your own copy is the mistake, so the bidder keeps it back while he has anything else to play.
 - As bidder, lead a suit you hold one card of. It empties the suit for cutting later, and if that card is an ace it banks the points while everyone can still follow.
-- Holding a called card, lay it at the first opportunity. Until the partnership is shown, neither of you knows which way to push a trick.
+- Holding a called card, lay it early: until the partnership is shown, neither of you knows which way to push a trick. But not from the last seat on a trick with no points in it, and not in a hurry when the called card is a trump, since a trump cannot be cut. A called card in a side suit still full of cards is the one to spend now, before somebody runs dry and cuts the round it would have won.
+- Never cut a trick a partner is already winning, and never throw a trump onto one they have already cut. The points were coming to your side either way, and that trump could have cut a whole trick later. A trump goes only when there is genuinely nothing else in the hand.
 - The black queen only goes down when the trick is already settled: playing last, with none but partners left to play, or when nothing outstanding can beat her.
 - The ace and king of spades are held back while a black queen is still out. They are the only cards that take one off the table, and spending the ace on a five point trick means having nothing left when the queen finally appears.
 
 Played head to head against the bots that came before all this, three a side over 250 games, the current ones score about 5% more and win nearly three tables in five. Individual rules were measured the same way; the queen catchers are worth about 3% on their own.
+
+
+### Tuning them
+
+Every number the bots weigh a decision with lives in one `TUNE` block in `server.js`, and `npm run tune` searches it.
+
+The searching matters less than the measuring. Comparing two versions over random games barely works — the cards decide most of it, and a few hundred games still carries several percent of noise, which is more than the difference you are usually looking for. So the tuner deals from a seed and replays the *same* deals for both versions, then plays the whole set again with the sides swapped. Run `npm run tune -- --check` and it puts identical settings on both sides: the answer is exactly zero, every time. That is a measuring instrument you can trust.
+
+The search on top of it is a plain hill climb, and its output needs reading rather than pasting. It plays against these same bots, so it will happily find settings that beat them and lose to people. One run reported a confident gain that turned out to come from bidding far higher and taking spades in most deals — exactly what a player had just reported as wrong at a real table. The tool now checks any winner against three separate sets of unseen deals and refuses to recommend anything that does not win all three. Nothing it has produced so far has cleared that bar, which is why the numbers in `server.js` are still the ones that came from a person.
 
 **A restart no longer ends the game.** Tables in progress are written to disk when the server goes down and read back when it comes up. Everyone's phone reconnects on its own and lands in the same seat with the same cards. This covers a crash, a manual restart and the server running out of memory. It does not cover a Render redeploy, because that replaces the whole machine and the file goes with it.
 
