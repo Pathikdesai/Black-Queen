@@ -390,7 +390,6 @@ const TUNE = {
   callKingTrump: 70, callKingOff: 25, callKingLen: 2, callKingHeld: 6,
   // how to play them
   holdBackup: 13,      // rank that must sit behind your own called card (13 = a king)
-  holdLongSuit: 7,     // suit length that carries itself regardless of the backup
   drawTrumpsFrom: 4,   // trumps in hand before leading them out
   catcherPot: 20,      // pot worth spending a queen catcher on
   revealSuitOut: 4,    // cards of a side suit still out before laying a called one
@@ -612,13 +611,14 @@ function trumpsOut(R, i) {
    and the queen are both still out there and the suit has walked away, along
    with the lead. So A-K goes down happily and A-then-10 waits.
 
-   Length is the way out. A long enough holding wins the later rounds by weight
-   of cards whatever the top of it looks like, so the backup stops mattering. */
+   Length is not a way out of that, which is the opposite of what it looks like.
+   A long suit is a reason to keep the ace, not to spend it: you already have
+   small cards for the routine work, and the one thing they cannot do is beat
+   something big when it finally appears. Cut with the low ones and keep the ace
+   for what it is actually for. */
 function keepsSuitControl(R, i, card) {
   const T = tuneOf(R, i);
-  const suit = R.players[i].hand.filter(c => c.s === card.s);
-  if (suit.length >= T.holdLongSuit) return true;
-  const rest = suit.filter(c => c.id !== card.id);
+  const rest = R.players[i].hand.filter(c => c.s === card.s && c.id !== card.id);
   if (!rest.length) return false;
   return Math.max(...rest.map(c => RV[c.r])) >= T.holdBackup;
 }

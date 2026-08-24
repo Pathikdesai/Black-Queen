@@ -309,10 +309,13 @@ function unitTests() {
     .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
   eq('holding both aces, laying one keeps control', bidderLeads(twoAces), 'AH');
 
+  /* Length looks like a reason to spend the ace and is the opposite. A long
+     suit already has small cards for the routine work; what it does not have is
+     anything else that beats a big card later. Cut with the low ones. */
   const sevenLong = ['A H','10 H','9 H','8 H','7 H','6 H','5 H','9 S','8 S','7 S','6 S','5 S','9 D','8 D']
     .map(t => { const [r, s] = t.split(' '); return C(r, s, id5++); });
-  eq('a seven card suit carries itself whatever sits under the ace',
-    bidderLeads(sevenLong), 'AH');
+  ok('seven cards is a reason to keep the ace, not to spend it',
+    bidderLeads(sevenLong) !== 'AH', 'led ' + bidderLeads(sevenLong));
 
   // length beats raw points: two hands with the same points, different shapes
   const flat = [
