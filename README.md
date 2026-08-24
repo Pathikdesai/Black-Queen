@@ -98,12 +98,13 @@ On top of that they follow a handful of conventions that came from a player rath
 
 - Length wins hands, not points in hand. Length in spades counts double, since the black queens ride in that suit.
 - Bid up one step at a time. A strong hand takes the auction anyway, and every five it climbs is five more to find later.
-- Trump is the suit you are strongest in, not simply the longest. Five spades with the ace and a black queen beats six hearts with the same top cards, because the hearts are worth nothing and the spades are worth forty.
+- Trump is the suit you are strongest in, not simply the longest. Five spades with the ace and a black queen beats six hearts with the same top cards, because the hearts are worth nothing and the spades are worth forty. A black queen only argues for spades when there are enough spades behind it to protect her: three spades and a queen is not a spade hand.
 - Never call a card in a suit you are void in; that call can never come down.
 - Call in the trump suit where you can. A partner found in the suit you control is a partner you can work with.
 - Calling a card you are holding is fine — the second copy is out there and whoever has it joins you. Laying your own copy is the mistake, so the bidder keeps it back while he has anything else to play.
 - As bidder, lead a suit you hold one card of. It empties the suit for cutting later, and if that card is an ace it banks the points while everyone can still follow.
-- Holding a called card, lay it at the first opportunity. Until the partnership is shown, neither of you knows which way to push a trick.
+- Holding a called card, lay it early: until the partnership is shown, neither of you knows which way to push a trick. But not from the last seat on a trick with no points in it, and not in a hurry when the called card is a trump, since a trump cannot be cut. A called card in a side suit still full of cards is the one to spend now, before somebody runs dry and cuts the round it would have won.
+- Never cut a trick a partner is already winning. It takes the points off your own side and spends a trump doing it.
 - The black queen only goes down when the trick is already settled: playing last, with none but partners left to play, or when nothing outstanding can beat her.
 - The ace and king of spades are held back while a black queen is still out. They are the only cards that take one off the table, and spending the ace on a five point trick means having nothing left when the queen finally appears.
 

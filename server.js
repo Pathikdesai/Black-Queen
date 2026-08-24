@@ -389,9 +389,9 @@ function botCeiling(R, i) {
   const voids = SUITS.filter(s => by[s] === 0).length;
   const est = 60
     + longest * 6
-    + by.S * 2
+    + by.S
     + aces * 6
-    + queens * 8
+    + queens * 6
     + kings * 2
     + voids * 3
     + pts * 0.15
@@ -419,7 +419,12 @@ function suitStrength(h, s) {
   if (!n) return -1;
   const has = r => h.some(c => c.r === r && c.s === s);
   let v = n + (has('A') ? 1 : 0) + (has('K') ? 0.5 : 0);
-  if (s === 'S') v += 1 + h.filter(c => c.r === 'Q' && c.s === 'S').length * 2;
+  /* Spades are worth more only when you hold a black queen AND enough spades
+     to actually protect it. Three spades and a queen is not a spade hand: name
+     spades there and the suit runs away from you with your own twenty points
+     in it. A flat bonus on every spade holding made spades trump three deals
+     in four, which is not a strategy, it is a tell. */
+  if (s === 'S' && n >= 5) v += h.filter(c => c.r === 'Q' && c.s === 'S').length * 1.5;
   return v;
 }
 function botDeclare(R, i) {
@@ -439,13 +444,21 @@ function botDeclare(R, i) {
 
      The calls belong in the trump suit wherever possible. Partners found in
      the suit you control are partners you can actually work with. */
+  const held = k => h.filter(c => c.r + c.s === k).length;
   const cands = [];
   SUITS.forEach(s => {
     if (by[s] === 0) return;
     const trumped = s === trump;
-    if (s === 'S') cands.push({ r: 'Q', s: 'S', w: trumped ? 100 : 84 });
-    cands.push({ r: 'A', s, w: trumped ? 90 : 60 - by[s] * 2 });
-    cands.push({ r: 'K', s, w: trumped ? 75 : 25 - by[s] * 2 });
+    /* The black queen was scored above every ace, so it was called in every
+       single contract. It is the most valuable card in the deck, but only
+       worth calling when it can do something: away from trump it is twenty
+       points sitting in a suit your partner may not be able to protect, and
+       holding both copies there is no third one to call for. */
+    if (s === 'S' && held('QS') < 2) {
+      cands.push({ r: 'Q', s: 'S', w: (trumped ? 88 : 62) - held('QS') * 14 });
+    }
+    cands.push({ r: 'A', s, w: (trumped ? 90 : 60 - by[s] * 2) - held('A' + s) * 8 });
+    cands.push({ r: 'K', s, w: (trumped ? 70 : 25 - by[s] * 2) - held('K' + s) * 6 });
   });
   cands.sort((a, b) => b.w - a.w);
   const seen = new Set(), pick = [];
@@ -501,6 +514,27 @@ function queenCatcher(R, i, card) {
 }
 function trickHasQueen(R) {
   return R.trick.some(t => t.card.r === 'Q' && t.card.s === 'S');
+}
+function suitOut(R, i, s) {
+  let n = 0;
+  for (const r of RANKS) n += stillOut(R, i, s, r);
+  return n;
+}
+/* When to lay a called card and come in as a partner. Early is right in
+   general, because until the partnership shows neither player knows which way
+   to push a trick. But not at any price:
+
+   - Last to play with nothing on the table wins nothing and announces you to
+     the whole room. Wait for a trick worth taking.
+   - A called card in the trump suit cannot be cut, so there is no hurry.
+   - A called card in a side suit still holding plenty of cards is the one to
+     spend now: the more of that suit is still out, the sooner somebody runs
+     dry and cuts the round it would have won. */
+function revealNow(R, i, card, pot, last) {
+  if (last && pot === 0) return false;
+  if (pot > 0) return true;
+  if (card.s === R.trump) return false;
+  return suitOut(R, i, card.s) >= 4;
 }
 /* The black queen is twenty points travelling to whoever wins the trick, so it
    is the one card whose cost has to be weighed against losing, not just its
@@ -610,7 +644,12 @@ function botPlay(R, i) {
 
   // Partner is holding the trick and nobody is left to take it off them: feed the points.
   if (friendly && last) {
-    const fat = opts.slice().sort((a, b) => ptsOf(b) - ptsOf(a))[0];
+    /* Feed the trick, but do not take it off them doing it. Beating a partner's
+       card wins nothing extra for the side and spends a good card, usually a
+       trump, to do it. */
+    const gift = opts.filter(c => !beats(c, R.trick[best].card, R.trump, R.lead));
+    const from = gift.length ? gift : opts;
+    const fat = from.slice().sort((a, b) => ptsOf(b) - ptsOf(a))[0];
     if (ptsOf(fat) > 0) return doPlay(R, i, fat.id);
   }
   /* Holding a called card and not yet shown: lay it at the first chance rather
@@ -621,7 +660,7 @@ function botPlay(R, i) {
       if (R.calledDone[k]) continue;
       const cc = R.called[k];
       const mine = opts.find(c => c.r === cc.r && c.s === cc.s);
-      if (mine) return doPlay(R, i, mine.id);
+      if (mine && revealNow(R, i, mine, pot, last)) return doPlay(R, i, mine.id);
     }
   }
   if (!friendly && winners.length) {
@@ -652,11 +691,19 @@ function botPlay(R, i) {
      round of that suit be cut. */
   /* The king of spades is worth nothing in itself, so it used to be thrown out
      as junk. While a queen is still out it is a catcher and must not go. */
-  const junk = opts.filter(c => ptsOf(c) === 0 && c.s !== R.trump && !queenCatcher(R, i, c));
-  const backup = opts.filter(c => ptsOf(c) === 0 && !queenCatcher(R, i, c));
-  const pool = junk.length ? junk : (backup.length ? backup : opts.filter(c => ptsOf(c) === 0));
-  const fin = (pool.length ? pool : opts).filter(c => safeToRisk(R, i, c, last));
-  const throwable = fin.length ? fin : (pool.length ? pool : opts);
+  /* A partner already holds this trick. Cutting it takes the points off your
+     own side and spends a trump to do it, so a trump goes last of all — even
+     a worthless one. */
+  let field = opts;
+  if (friendly) {
+    const offTrump = opts.filter(c => c.s !== R.trump);
+    if (offTrump.length) field = offTrump;
+  }
+  const junk = field.filter(c => ptsOf(c) === 0 && c.s !== R.trump && !queenCatcher(R, i, c));
+  const backup = field.filter(c => ptsOf(c) === 0 && !queenCatcher(R, i, c));
+  const pool = junk.length ? junk : (backup.length ? backup : field.filter(c => ptsOf(c) === 0));
+  const fin = (pool.length ? pool : field).filter(c => safeToRisk(R, i, c, last));
+  const throwable = fin.length ? fin : (pool.length ? pool : field);
   return doPlay(R, i, throwable.sort((a, b) =>
     ptsOf(a) - ptsOf(b) || bySuit(a.s) - bySuit(b.s) || RV[a.r] - RV[b.r])[0].id);
 }

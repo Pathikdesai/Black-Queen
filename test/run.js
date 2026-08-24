@@ -206,6 +206,56 @@ function unitTests() {
     d2.calls.includes('QS') && d2.calls.includes('AS'),
     'called ' + d2.calls.join(' + '));
 
+  /* Three spades and a black queen is not a spade hand. Naming spades there
+     lets the suit run away with your own twenty points in it. Reported from a
+     real table as "always kaali hakam": the bots were taking spades three
+     deals in four and calling the queen in every single contract. */
+  const shortSpades = [
+    C('Q','S',id2++),C('7','S',id2++),C('4','S',id2++),
+    C('A','H',id2++),C('K','H',id2++),C('J','H',id2++),C('9','H',id2++),C('8','H',id2++),C('6','H',id2++),
+    C('A','D',id2++),C('9','D',id2++),C('8','D',id2++),
+    C('K','C',id2++),C('7','C',id2++)
+  ];
+  const d3 = declares(shortSpades);
+  eq('a black queen in a three card spade holding does not make spades trump', d3.trump, 'H');
+  ok('and the queen is not called from outside the trump suit either',
+    !d3.calls.includes('QS'), 'called ' + d3.calls.join(' + '));
+
+  /* A partner already holds the trick. Cutting it takes the points off your own
+     side and spends a trump to do it. */
+  const cutter = [C('8','D',400), C('7','C',401), C('9','S',402)];
+  const R6 = table([[], [], [], cutter, [], []]);
+  R6.phase = 'play'; R6.trump = 'S'; R6.bidder = 0; R6.bidAmount = 130;
+  R6.team = new Set([0, 3]); R6.privateTeam = new Set([0, 3]);
+  R6.called = [{ r: 'A', s: 'D' }, { r: 'K', s: 'D' }]; R6.calledDone = [true, true];
+  R6.trickNo = 7; R6.leader = 0; R6.lead = 'H';
+  // seat 0 is a partner and is winning the trick with the ace of hearts
+  R6.trick = [{ p: 0, card: C('A','H',403) }, { p: 1, card: C('6','H',404) }, { p: 2, card: C('5','H',405) }];
+  G.botPlay(R6, 3);
+  const thrown = R6.trick.length > 3 ? R6.trick[3].card : null;
+  ok('a trick a partner is winning is not cut with a trump',
+    thrown && thrown.s !== 'S', 'played ' + (thrown ? thrown.r + thrown.s : 'nothing'));
+  stop(R6);
+
+  /* Coming in as a partner is right in general, but not from the last seat on
+     an empty trick: it wins nothing and tells the whole table who you are. */
+  const revealer = [C('A','D',500), C('9','C',501), C('8','C',502)];
+  const R7 = table([[], [], [], [], [], revealer]);
+  R7.phase = 'play'; R7.trump = 'S'; R7.bidder = 0; R7.bidAmount = 130;
+  R7.team = new Set([0]); R7.privateTeam = new Set([0]);
+  R7.called = [{ r: 'A', s: 'D' }, { r: 'K', s: 'H' }]; R7.calledDone = [false, false];
+  R7.trickNo = 4; R7.leader = 0; R7.lead = 'C';
+  R7.trick = [
+    { p: 0, card: C('J','C',503) }, { p: 1, card: C('7','C',504) }, { p: 2, card: C('6','C',505) },
+    { p: 3, card: C('4','C',506) }, { p: 4, card: C('J','C',507) }
+  ];
+  G.botPlay(R7, 5);
+  const held7 = R7.trick.length > 5 ? R7.trick[5].card : null;
+  ok('a called card is not spent from the last seat on a pointless trick',
+    held7 && !(held7.r === 'A' && held7.s === 'D'),
+    'played ' + (held7 ? held7.r + held7.s : 'nothing'));
+  stop(R7);
+
   /* The bidder holding a copy of his own called card keeps it back while there
      is anything else to play, because laying it spends the call and gives away
      a suit he no longer controls. */
