@@ -104,7 +104,7 @@ On top of that they follow a handful of conventions that came from a player rath
 - Calling a card you are holding is fine — the second copy is out there and whoever has it joins you. Laying your own copy is the mistake, so the bidder keeps it back while he has anything else to play.
 - As bidder, lead a suit you hold one card of. It empties the suit for cutting later, and if that card is an ace it banks the points while everyone can still follow.
 - Holding a called card, lay it early: until the partnership is shown, neither of you knows which way to push a trick. But not from the last seat on a trick with no points in it, and not in a hurry when the called card is a trump, since a trump cannot be cut. A called card in a side suit still full of cards is the one to spend now, before somebody runs dry and cuts the round it would have won.
-- Never cut a trick a partner is already winning. It takes the points off your own side and spends a trump doing it.
+- Never cut a trick a partner is already winning, and never throw a trump onto one they have already cut. The points were coming to your side either way, and that trump could have cut a whole trick later. A trump goes only when there is genuinely nothing else in the hand.
 - The black queen only goes down when the trick is already settled: playing last, with none but partners left to play, or when nothing outstanding can beat her.
 - The ace and king of spades are held back while a black queen is still out. They are the only cards that take one off the table, and spending the ace on a five point trick means having nothing left when the queen finally appears.
 

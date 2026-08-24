@@ -644,11 +644,15 @@ function botPlay(R, i) {
 
   // Partner is holding the trick and nobody is left to take it off them: feed the points.
   if (friendly && last) {
-    /* Feed the trick, but do not take it off them doing it. Beating a partner's
-       card wins nothing extra for the side and spends a good card, usually a
-       trump, to do it. */
-    const gift = opts.filter(c => !beats(c, R.trick[best].card, R.trump, R.lead));
-    const from = gift.length ? gift : opts;
+    /* Feed the trick, but never with a trump, and never with a card that takes
+       it off them. A trump thrown onto a trick a partner has already won is
+       gone for nothing: those points were coming to your side either way, and
+       that trump could have cut a whole trick later. Anything else in the hand
+       goes first, and a trump only when there is genuinely nothing else. */
+    const offTrump = opts.filter(c => c.s !== R.trump);
+    const keepTrumps = offTrump.length ? offTrump : opts;
+    const gift = keepTrumps.filter(c => !beats(c, R.trick[best].card, R.trump, R.lead));
+    const from = gift.length ? gift : keepTrumps;
     const fat = from.slice().sort((a, b) => ptsOf(b) - ptsOf(a))[0];
     if (ptsOf(fat) > 0) return doPlay(R, i, fat.id);
   }

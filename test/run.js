@@ -237,6 +237,28 @@ function unitTests() {
     thrown && thrown.s !== 'S', 'played ' + (thrown ? thrown.r + thrown.s : 'nothing'));
   stop(R6);
 
+  /* A partner has already cut the trick, so the points are coming to your side
+     whatever you do. Throwing a trump on top of that is gone for nothing, even
+     when the trump carries points itself — that card could have cut a whole
+     trick later. Reported from a real table: "partner ne kaata hai toh bhi
+     hakam daalke waste karenge". */
+  const wastrel = [C('5','S',600), C('8','D',601), C('7','C',602)];
+  const R8 = table([[], [], [], [], [], wastrel]);
+  R8.phase = 'play'; R8.trump = 'S'; R8.bidder = 1; R8.bidAmount = 130;
+  R8.team = new Set([1, 5]); R8.privateTeam = new Set([1, 5]);
+  R8.called = [{ r: 'A', s: 'D' }, { r: 'K', s: 'D' }]; R8.calledDone = [true, true];
+  R8.trickNo = 9; R8.leader = 0; R8.lead = 'H';
+  R8.trick = [
+    { p: 0, card: C('A','H',603) },   // an opponent leads the ace
+    { p: 1, card: C('6','S',604) },   // the partner cuts it and now holds the trick
+    { p: 2, card: C('9','H',605) }, { p: 3, card: C('8','H',606) }, { p: 4, card: C('7','H',607) }
+  ];
+  G.botPlay(R8, 5);
+  const gave = R8.trick.length > 5 ? R8.trick[5].card : null;
+  ok('no trump is thrown onto a trick a partner has already cut',
+    gave && gave.s !== 'S', 'played ' + (gave ? gave.r + gave.s : 'nothing'));
+  stop(R8);
+
   /* Coming in as a partner is right in general, but not from the last seat on
      an empty trick: it wins nothing and tells the whole table who you are. */
   const revealer = [C('A','D',500), C('9','C',501), C('8','C',502)];
