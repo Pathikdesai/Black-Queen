@@ -269,9 +269,61 @@ function unitTests() {
   const onOpponent = partnerPlays(aceHand(), [C('Q','H',963), C('10','H',964)], 1);
   eq('but an opponent holding the trick is worth the ace', onOpponent.played, 'AH');
 
-  const bidderBeaten = partnerPlays(aceHand(),
+  /* The bidder led the king and an opponent has already put the other ace on
+     it. Identical cards tie in favour of whoever played first, so this ace
+     cannot take the trick back — it can only be handed over with ten points
+     attached. It stays in hand. (This test used to expect the ace, which was
+     simply wrong about the tie rule.) */
+  const cannotWin = partnerPlays(aceHand(),
     [C('K','H',965), C('5','H',966), C('A','H',967)], 0);
-  eq('and so is a bidder who has already been beaten', bidderBeaten.played, 'AH');
+  ok('an ace that cannot beat the ace already down is not thrown after it',
+    cannotWin.played !== 'AH', 'played ' + cannotWin.played);
+
+  /* From a real hand, and an expensive one. Bidder, spades trump, called A♠ and
+     Q♠. The bidder leads 10♠, an opponent covers with the king, and the player
+     holding the called black queen drops her straight under it to come in.
+     Twenty points handed over, plus the ten already in the trick. The reveal
+     was ignoring the queen rule entirely: it only asked whether coming in was
+     worth it, never what the card cost on the way. */
+  const queenHolder = [C('Q','S',1100), C('6','S',1101), C('4','S',1102)];
+  const R11 = table([[], [], [], [], queenHolder, []]);
+  R11.phase = 'play'; R11.trump = 'S'; R11.bidder = 0; R11.bidAmount = 130;
+  R11.called = [{ r: 'A', s: 'S' }, { r: 'Q', s: 'S' }];
+  R11.calledDone = [false, false];
+  R11.team = new Set([0]); R11.privateTeam = new Set([0]);
+  R11.trickNo = 1; R11.leader = 0; R11.lead = 'S';
+  R11.trick = [
+    { p: 0, card: C('10','S',1103) },     // the bidder leads
+    { p: 1, card: C('5','S',1104) },
+    { p: 2, card: C('J','S',1105) },
+    { p: 3, card: C('K','S',1106) }       // an opponent takes charge
+  ];
+  R11.trick.forEach(t => { R11.seen[t.card.r + t.card.s] = 1; });
+  G.botPlay(R11, 4);
+  const dropped = R11.trick.length > 4 ? R11.trick[4].card : null;
+  ok('the black queen is not dropped under a king just to come in as a partner',
+    dropped && !(dropped.r === 'Q' && dropped.s === 'S'),
+    'played ' + (dropped ? dropped.r + dropped.s : 'nothing'));
+  stop(R11);
+
+  /* A called card that wins the trick still goes down, and one worth nothing
+     may go down freely. It is only the losing, point-carrying card that waits. */
+  const winsIt = [C('A','D',1110), C('8','C',1111), C('7','C',1112)];
+  const R12 = table([[], [], [], [], [], winsIt]);
+  R12.phase = 'play'; R12.trump = 'S'; R12.bidder = 0; R12.bidAmount = 130;
+  R12.called = [{ r: 'A', s: 'D' }, { r: 'K', s: 'H' }];
+  R12.calledDone = [false, false];
+  R12.team = new Set([0]); R12.privateTeam = new Set([0]);
+  R12.trickNo = 4; R12.leader = 1; R12.lead = 'D';
+  R12.trick = [
+    { p: 1, card: C('Q','D',1113) }, { p: 2, card: C('9','D',1114) },
+    { p: 3, card: C('10','D',1115) }, { p: 4, card: C('6','D',1116) }
+  ];
+  G.botPlay(R12, 5);
+  const taken = R12.trick.length > 4 ? R12.trick[4].card : null;
+  eq('but a called card that takes the trick is still laid',
+    taken ? taken.r + taken.s : 'nothing', 'AD');
+  stop(R12);
 
   /* From a real hand. Bidder, spades trump, called K♠ and A♥. One partner lays
      the called ace and is winning the trick. The other holds the called king of

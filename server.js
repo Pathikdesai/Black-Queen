@@ -743,7 +743,19 @@ function botPlay(R, i) {
       if (R.calledDone[k]) continue;
       const cc = R.called[k];
       const mine = opts.find(c => c.r === cc.r && c.s === cc.s);
-      if (mine && revealNow(R, i, mine, pot, last)) return doPlay(R, i, mine.id);
+      if (!mine) continue;
+      /* Coming in is worth something, but never this much. If the called card
+         cannot take the trick and carries points, laying it here hands those
+         points to whoever is winning — and the whole reason to come in early is
+         to help the side, not to pay an opponent for the privilege. A called
+         card worth nothing may go down freely; one that wins the trick may go
+         down gladly. The black queen answers to her own rule on top of that:
+         dropped under a king she is twenty points given away, which is exactly
+         what happened at a real table. */
+      const takesIt = winners.includes(mine);
+      if (!takesIt && ptsOf(mine) > 0) continue;
+      if (!safeToRisk(R, i, mine, last)) continue;
+      if (revealNow(R, i, mine, pot, last)) return doPlay(R, i, mine.id);
     }
   }
   if (!friendly && winners.length) {
