@@ -95,6 +95,10 @@ Phones need one tap anywhere before audio can start. That is a browser rule, not
 
 **The bots count cards, and play to table rules.** They track which cards have been played and who has failed to follow which suit, and only ever use what is visible at the table, so they are counting rather than peeking.
 
+That last part is checked rather than asserted. `npm test` wraps every hand at the table, records every read of it along with the seat that is currently deciding, and fails if any bot decision ever touches another player's cards — or the server's private record of who is secretly on the bidding side. Across a few hundred decisions it comes out at zero. What a bot may use is its own hand, the cards already played, who has failed to follow which suit, the announced calls, and the revealed team: everything a person in that seat can see.
+
+One consequence worth knowing: if you are holding a card the bidder called, you are going to be his partner, and the app now tells you so. The bots work that out for themselves, so leaving it off your screen would have given them the one thing they knew that you were not being shown.
+
 On top of that they follow a handful of conventions that came from a player rather than from the rulebook:
 
 - Length wins hands, not points in hand. Length in spades counts for a little more than length elsewhere, since the black queens ride in that suit.

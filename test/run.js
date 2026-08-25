@@ -409,6 +409,89 @@ function unitTests() {
       + ' (flat holds ' + flatPts + ' pts, long holds ' + longPts + ')');
   stop(R3);
 
+  /* The bots are not allowed to look at anybody else's cards. Reading the code
+     is weaker evidence than watching it, so every hand is wrapped and every
+     read recorded, with the seat that is currently deciding noted alongside.
+     Any read of another seat's cards from inside the brain is a peek.
+
+     What the brain may use: its own hand, the cards already played, who has
+     failed to follow which suit, the announced calls, and the revealed team.
+     All of it visible to a person in that seat. */
+  console.log('\nthe bots do not look at anyone else\'s cards');
+  const BRAIN = new Set(['botCeiling','suitStrength','botDeclare','botPlay','botBid',
+    'knownMate','holdsOpenCall','stillOut','topOut','opponentVoid','trumpsOut','trumpsIn',
+    'queenCatcher','trickHasQueen','suitOut','revealNow','ownCallToHold','safeToRisk']);
+  let deciding = null;
+  const peeks = [], secretPeeks = [];
+  function watched(R, seat) {
+    return new Proxy(R.players[seat].hand, {
+      get(t, prop) {
+        if (deciding !== null && deciding !== seat && typeof prop !== 'symbol') {
+          const stack = (new Error().stack || '').split('\n').slice(1, 12);
+          for (const line of stack) {
+            const m = /at (?:Object\.)?(\w+)/.exec(line);
+            if (m && BRAIN.has(m[1])) { peeks.push(m[1] + ' read seat ' + seat); break; }
+            if (m && !BRAIN.has(m[1])) break;   // referee frame, allowed
+          }
+        }
+        return Reflect.get(t, prop);
+      }
+    });
+  }
+  let decisions = 0;
+  for (let d = 0; d < 8; d++) {
+    const deck = G.shuffle(G.buildDeck());
+    const R = G.createRoom(6);
+    for (let i = 0; i < 6; i++) R.players.push({
+      name: 'S' + i, token: 'z' + i, bot: true, connected: true, ws: null,
+      score: 0, hand: deck.slice(i * 14, (i + 1) * 14), won: 0
+    });
+    R.hostToken = 'z0';
+    R.n = 6; R.handSize = 14; R.totalDeals = 9; R.dealNo = 1; R.dealer = d % 6;
+    R.trump = null; R.called = [null, null]; R.calledDone = [false, false];
+    R.bidder = null; R.bidAmount = null;
+    R.team = new Set(); R.privateTeam = new Set();
+    R.trick = []; R.lead = null; R.leader = null; R.trickNo = 0;
+    R.lastTrick = null; R.result = null; R.bigTrick = null;
+    R.partnerAt = [null, null]; R.cuts = {};
+    R.seen = {}; R.voids = R.players.map(() => new Set());
+    R.bidState = { turn: (R.dealer + 1) % 6, high: null, highBidder: null,
+                   passed: new Set(), opened: false };
+    R.phase = 'bid';
+    for (let i = 0; i < 6; i++) R.players[i].hand = watched(R, i);
+    // and the one genuinely hidden thing the server keeps: who is secretly on side
+    const realPrivate = R.privateTeam;
+    R.privateTeam = {
+      has(x) { if (deciding !== null && x !== deciding) secretPeeks.push(x); return realPrivate.has(x); },
+      add: x => realPrivate.add(x), delete: x => realPrivate.delete(x),
+      forEach: f => realPrivate.forEach(f),
+      get size() { return realPrivate.size; },
+      [Symbol.iterator]() { return realPrivate[Symbol.iterator](); }
+    };
+    let guard = 0;
+    while (R.phase !== 'dealover' && R.phase !== 'gameover' && guard++ < 4000) {
+      let seat = null;
+      if (R.phase === 'bid') seat = R.bidState.turn;
+      else if (R.phase === 'declare') seat = R.bidder;
+      else if (R.phase === 'play') seat = (R.leader + R.trick.length) % 6;
+      if (seat !== null) {
+        deciding = seat; decisions++;
+        try {
+          if (R.phase === 'bid') G.botBid(R, seat);
+          else if (R.phase === 'declare') G.botDeclare(R, seat);
+          else G.botPlay(R, seat);
+        } finally { deciding = null; }
+      } else if (R.phase === 'resolve') { clearTimeout(R.timer); G.resolveTrick(R); }
+      else break;
+    }
+    stop(R);
+  }
+  ok('enough decisions to be worth checking', decisions > 400, decisions + ' decisions');
+  ok('no bot decision ever reads another player\'s cards', peeks.length === 0,
+    peeks.length ? peeks.slice(0, 3).join('; ') : '');
+  ok('nor the hidden record of who is secretly on the bidding side',
+    secretPeeks.length === 0, secretPeeks.length + ' reads');
+
   console.log('\nsaving a table for the next boot');
   const R = G.createRoom(6);
   for (let i = 0; i < 6; i++) {

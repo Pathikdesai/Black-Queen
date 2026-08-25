@@ -866,7 +866,12 @@ function viewFor(R, me) {
     dealNo: R.dealNo, totalDeals: R.totalDeals, handSize: R.handSize,
     trump: R.trump, called: R.called, calledDone: R.calledDone,
     bidder: R.bidder, bidAmount: R.bidAmount, dealer: R.dealer,
-    team: [...R.team], secretMate: R.privateTeam.has(me) && !R.team.has(me) && R.bidder !== me,
+    team: [...R.team],
+    /* Told to you because it is your own deduction to make: the calls were
+       announced and the cards are in your hand. The bots work it out the same
+       way, so leaving it off your screen would have handed them the one thing
+       they know that you were not being shown. */
+    secretMate: (R.privateTeam.has(me) || holdsOpenCall(R, me)) && !R.team.has(me) && R.bidder !== me,
     teamPts: R.team.size ? teamPoints(R) : 0,
     trick: R.trick.map(t => ({ p: t.p, card: t.card })),
     trickNo: Math.min(R.trickNo, R.handSize),
