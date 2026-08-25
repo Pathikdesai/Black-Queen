@@ -237,6 +237,73 @@ function unitTests() {
     thrown && thrown.s !== 'S', 'played ' + (thrown ? thrown.r + thrown.s : 'nothing'));
   stop(R6);
 
+  /* Holding a called card that has not come down makes you the bidder's partner
+     and you can work that out yourself: the calls are announced and you can see
+     your own hand. Without that the bot took the bidder for an opponent and beat
+     his king with the very ace it was about to partner him with. */
+  let id9 = 900;
+  function partnerPlays(hand, trick, leader) {
+    const R = table([[], [], [], hand, [], []]);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 130;
+    R.team = new Set([0]); R.privateTeam = new Set([0]);
+    R.called = [{ r: 'A', s: 'H' }, { r: 'K', s: 'D' }]; R.calledDone = [false, false];
+    R.trickNo = 4; R.leader = leader; R.lead = trick[0].s;
+    R.trick = trick.map((c, n) => ({ p: (leader + n) % 6, card: c }));
+    trick.forEach(c => { R.seen[c.r + c.s] = (R.seen[c.r + c.s] || 0) + 1; });
+    const mate = G.knownMate(R, 3, 0);
+    G.botPlay(R, 3);
+    const out = R.trick.length > trick.length ? R.trick[R.trick.length - 1].card : null;
+    stop(R);
+    return { mate, played: out ? out.r + out.s : 'nothing' };
+  }
+  const aceHand = () => [
+    C('A','H',id9++),C('9','H',id9++),C('6','H',id9++),
+    C('8','C',id9++),C('7','C',id9++),C('9','D',id9++)
+  ];
+  const onBidder = partnerPlays(aceHand(),
+    [C('K','H',960), C('5','H',961), C('4','H',962)], 0);
+  ok('holding the called ace, you know the bidder is your side', onBidder.mate, '');
+  ok('and you do not beat his king with it', onBidder.played !== 'AH',
+    'played ' + onBidder.played);
+
+  const onOpponent = partnerPlays(aceHand(), [C('Q','H',963), C('10','H',964)], 1);
+  eq('but an opponent holding the trick is worth the ace', onOpponent.played, 'AH');
+
+  const bidderBeaten = partnerPlays(aceHand(),
+    [C('K','H',965), C('5','H',966), C('A','H',967)], 0);
+  eq('and so is a bidder who has already been beaten', bidderBeaten.played, 'AH');
+
+  /* From a real hand. Bidder, spades trump, called K♠ and A♥. One partner lays
+     the called ace and is winning the trick. The other holds the called king of
+     trumps, is void in hearts, and has plenty else to throw — and cut his own
+     partner's winning trick with it to come in. Two called cards spent on one
+     trick that was already won, and the king of trumps gone with them. */
+  const secondPartner = [
+    C('K','S',1000),C('8','D',1001),C('7','D',1002),C('9','C',1003),C('8','C',1004)
+  ];
+  const R10 = table([[], [], [], [], secondPartner, []]);
+  R10.phase = 'play'; R10.trump = 'S'; R10.bidder = 0; R10.bidAmount = 140;
+  R10.called = [{ r: 'K', s: 'S' }, { r: 'A', s: 'H' }];
+  R10.calledDone = [false, true];          // the ace is down, the king is not
+  R10.team = new Set([0, 2]);              // seat 2 came in on the ace
+  R10.privateTeam = new Set([0, 2]);
+  R10.partnerAt = [null, 2];
+  R10.trickNo = 5; R10.leader = 1; R10.lead = 'H';
+  R10.seen = { AH: 1 };
+  R10.trick = [
+    { p: 1, card: C('9','H',1005) },       // an opponent leads
+    { p: 2, card: C('A','H',1006) },       // the first partner takes it with the called ace
+    { p: 3, card: C('6','H',1007) }
+  ];
+  ok('the second partner knows the first one is on his side',
+    G.knownMate(R10, 4, 2), '');
+  G.botPlay(R10, 4);
+  const cutWith = R10.trick.length > 3 ? R10.trick[3].card : null;
+  ok('and does not cut that trick with the called king of trumps',
+    cutWith && cutWith.s !== 'S',
+    'played ' + (cutWith ? cutWith.r + cutWith.s : 'nothing'));
+  stop(R10);
+
   /* A partner has already cut the trick, so the points are coming to your side
      whatever you do. Throwing a trump on top of that is gone for nothing, even
      when the trump carries points itself — that card could have cut a whole
@@ -278,21 +345,48 @@ function unitTests() {
     'played ' + (held7 ? held7.r + held7.s : 'nothing'));
   stop(R7);
 
-  /* The bidder holding a copy of his own called card keeps it back while there
-     is anything else to play, because laying it spends the call and gives away
-     a suit he no longer controls. */
-  const holder = [C('A','H',300), C('7','H',301), C('6','H',302)];
-  const R5 = table([holder, [], [], [], [], []]);
-  R5.phase = 'play'; R5.trump = 'H'; R5.bidder = 0; R5.bidAmount = 125;
-  R5.team = new Set([0]); R5.privateTeam = new Set([0]);
-  R5.called = [{ r: 'A', s: 'H' }, { r: 'K', s: 'H' }]; R5.calledDone = [false, false];
-  R5.leader = 0; R5.lead = null; R5.trick = [];
-  G.botPlay(R5, 0);
-  const laid = R5.trick.length ? R5.trick[0].card : null;
-  ok('the bidder does not lay his own called card while he has another',
-    laid && !(laid.r === 'A' && laid.s === 'H'),
-    'led ' + (laid ? laid.r + laid.s : 'nothing'));
-  stop(R5);
+  /* The bidder's own copy of a called card never goes down. There is no
+     version of laying it that is worth the ace: even with the king behind it,
+     leading the king does the same job better — whoever holds the other copy
+     has to spend it to win the trick, so the partnership comes out anyway,
+     while the ace stays in hand for the big card that turns up later. And the
+     opposition is a round of the suit lighter for it. */
+  let id5 = 700;
+  function bidderLeads(hand) {
+    const R = table([hand, [], [], [], [], []]);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 130;
+    R.team = new Set([0]); R.privateTeam = new Set([0]);
+    R.called = [{ r: 'A', s: 'H' }, { r: 'K', s: 'D' }]; R.calledDone = [false, false];
+    R.trickNo = 3; R.leader = 0; R.lead = null; R.trick = [];
+    G.botPlay(R, 0);
+    const led = R.trick.length ? R.trick[0].card : null;
+    stop(R);
+    return led ? led.r + led.s : 'nothing';
+  }
+  const H = (...ranks) => ranks.map(r => C(r, 'H', id5++));
+  const filler = () => [
+    C('9','S',id5++),C('8','S',id5++),C('7','S',id5++),C('6','S',id5++),C('5','S',id5++),
+    C('9','D',id5++),C('8','D',id5++),C('7','D',id5++)
+  ];
+  // no singletons in any of these, or the lead-your-singleton rule answers first
+  const gap = [...H('A','10','7','6','5'), ...filler().slice(0, 9)];
+  ok('an ace with a gap under it is kept back', bidderLeads(gap) !== 'AH',
+    'led ' + bidderLeads(gap));
+
+  const backed = [...H('A','K','10','7','6'), ...filler().slice(0, 9)];
+  eq('an ace with the king behind it leads the king, not the ace',
+    bidderLeads(backed), 'KH');
+
+  const twoAces = [...H('A','A','10','7','6'), ...filler().slice(0, 9)];
+  ok('holding both aces is still no reason to spend one',
+    bidderLeads(twoAces) !== 'AH', 'led ' + bidderLeads(twoAces));
+
+  /* Length looks like a reason to spend the ace and is the opposite. A long
+     suit already has small cards for the routine work; what it does not have is
+     anything else that beats a big card later. Cut with the low ones. */
+  const sevenLong = [...H('A','10','9','8','7','6','5'), ...filler().slice(0, 7)];
+  ok('seven cards is a reason to keep the ace, not to spend it',
+    bidderLeads(sevenLong) !== 'AH', 'led ' + bidderLeads(sevenLong));
 
   // length beats raw points: two hands with the same points, different shapes
   const flat = [
@@ -314,6 +408,89 @@ function unitTests() {
     flatWins >= 34, 'the long hand bid higher in ' + flatWins + ' of 40 deals'
       + ' (flat holds ' + flatPts + ' pts, long holds ' + longPts + ')');
   stop(R3);
+
+  /* The bots are not allowed to look at anybody else's cards. Reading the code
+     is weaker evidence than watching it, so every hand is wrapped and every
+     read recorded, with the seat that is currently deciding noted alongside.
+     Any read of another seat's cards from inside the brain is a peek.
+
+     What the brain may use: its own hand, the cards already played, who has
+     failed to follow which suit, the announced calls, and the revealed team.
+     All of it visible to a person in that seat. */
+  console.log('\nthe bots do not look at anyone else\'s cards');
+  const BRAIN = new Set(['botCeiling','suitStrength','botDeclare','botPlay','botBid',
+    'knownMate','holdsOpenCall','stillOut','topOut','opponentVoid','trumpsOut','trumpsIn',
+    'queenCatcher','trickHasQueen','suitOut','revealNow','ownCallToHold','safeToRisk']);
+  let deciding = null;
+  const peeks = [], secretPeeks = [];
+  function watched(R, seat) {
+    return new Proxy(R.players[seat].hand, {
+      get(t, prop) {
+        if (deciding !== null && deciding !== seat && typeof prop !== 'symbol') {
+          const stack = (new Error().stack || '').split('\n').slice(1, 12);
+          for (const line of stack) {
+            const m = /at (?:Object\.)?(\w+)/.exec(line);
+            if (m && BRAIN.has(m[1])) { peeks.push(m[1] + ' read seat ' + seat); break; }
+            if (m && !BRAIN.has(m[1])) break;   // referee frame, allowed
+          }
+        }
+        return Reflect.get(t, prop);
+      }
+    });
+  }
+  let decisions = 0;
+  for (let d = 0; d < 8; d++) {
+    const deck = G.shuffle(G.buildDeck());
+    const R = G.createRoom(6);
+    for (let i = 0; i < 6; i++) R.players.push({
+      name: 'S' + i, token: 'z' + i, bot: true, connected: true, ws: null,
+      score: 0, hand: deck.slice(i * 14, (i + 1) * 14), won: 0
+    });
+    R.hostToken = 'z0';
+    R.n = 6; R.handSize = 14; R.totalDeals = 9; R.dealNo = 1; R.dealer = d % 6;
+    R.trump = null; R.called = [null, null]; R.calledDone = [false, false];
+    R.bidder = null; R.bidAmount = null;
+    R.team = new Set(); R.privateTeam = new Set();
+    R.trick = []; R.lead = null; R.leader = null; R.trickNo = 0;
+    R.lastTrick = null; R.result = null; R.bigTrick = null;
+    R.partnerAt = [null, null]; R.cuts = {};
+    R.seen = {}; R.voids = R.players.map(() => new Set());
+    R.bidState = { turn: (R.dealer + 1) % 6, high: null, highBidder: null,
+                   passed: new Set(), opened: false };
+    R.phase = 'bid';
+    for (let i = 0; i < 6; i++) R.players[i].hand = watched(R, i);
+    // and the one genuinely hidden thing the server keeps: who is secretly on side
+    const realPrivate = R.privateTeam;
+    R.privateTeam = {
+      has(x) { if (deciding !== null && x !== deciding) secretPeeks.push(x); return realPrivate.has(x); },
+      add: x => realPrivate.add(x), delete: x => realPrivate.delete(x),
+      forEach: f => realPrivate.forEach(f),
+      get size() { return realPrivate.size; },
+      [Symbol.iterator]() { return realPrivate[Symbol.iterator](); }
+    };
+    let guard = 0;
+    while (R.phase !== 'dealover' && R.phase !== 'gameover' && guard++ < 4000) {
+      let seat = null;
+      if (R.phase === 'bid') seat = R.bidState.turn;
+      else if (R.phase === 'declare') seat = R.bidder;
+      else if (R.phase === 'play') seat = (R.leader + R.trick.length) % 6;
+      if (seat !== null) {
+        deciding = seat; decisions++;
+        try {
+          if (R.phase === 'bid') G.botBid(R, seat);
+          else if (R.phase === 'declare') G.botDeclare(R, seat);
+          else G.botPlay(R, seat);
+        } finally { deciding = null; }
+      } else if (R.phase === 'resolve') { clearTimeout(R.timer); G.resolveTrick(R); }
+      else break;
+    }
+    stop(R);
+  }
+  ok('enough decisions to be worth checking', decisions > 400, decisions + ' decisions');
+  ok('no bot decision ever reads another player\'s cards', peeks.length === 0,
+    peeks.length ? peeks.slice(0, 3).join('; ') : '');
+  ok('nor the hidden record of who is secretly on the bidding side',
+    secretPeeks.length === 0, secretPeeks.length + ' reads');
 
   console.log('\nsaving a table for the next boot');
   const R = G.createRoom(6);

@@ -515,9 +515,25 @@ function botDeclare(R, i) {
   if (!pick.length) { pick.push({ r: 'A', s: trump }, { r: 'K', s: trump }); }
   doDeclare(R, i, trump, [{ r: pick[0].r, s: pick[0].s }, { r: pick[1].r, s: pick[1].s }]);
 }
+/* Holding a called card that has not come down yet. The bidder named that card
+   out loud to find a partner, so whoever is holding it is the partner he is
+   looking for — and you can see your own hand. Working that out is deduction
+   anybody at the table can make, not a look at somebody else's cards, and it
+   holds however the two copies happen to be split. */
+function holdsOpenCall(R, i) {
+  const p = R.players[i];
+  if (!p || !R.called) return false;
+  return R.called.some((cc, k) =>
+    cc && !R.calledDone[k] && p.hand.some(c => c.r === cc.r && c.s === cc.s));
+}
 function knownMate(R, i, j) {
   if (R.team.has(i) && R.team.has(j)) return true;
-  if (R.privateTeam.has(i) && (j === R.bidder || R.team.has(j))) return true;
+  /* Until this fix a player sitting on the called ace did not know whose side
+     he was on, so he would cheerfully beat the bidder's king with it — taking
+     a trick off the partner he was about to become, with the one card he most
+     wanted to keep. */
+  const onSide = R.privateTeam.has(i) || holdsOpenCall(R, i);
+  if (onSide && (j === R.bidder || R.team.has(j))) return true;
   return false;
 }
 
@@ -603,16 +619,15 @@ function trumpsOut(R, i) {
   return n;
 }
 
-/* The bidder called a card he is holding a copy of, and this is that copy.
-   Laying it himself spends the call: the holder of the other copy joins, but
-   the bidder has handed away the lead in a suit he no longer controls. Holding
-   both kings of the suit means he still controls it, and then it does not
-   matter. So keep it back while there is anything else to play. */
+/* The bidder called a card he is holding a copy of, and this is that copy. It
+   never goes down. There is no version of laying it that is worth the ace:
+   even with the king sitting behind it, leading the king does the same job
+   better — the holder of the other copy has to spend it to win the trick,
+   which brings them out as a partner just the same, while the ace stays in
+   hand for the big card that turns up later. */
 function ownCallToHold(R, i, card) {
   if (i !== R.bidder) return false;
-  const open = R.called.some((cc, k) => !R.calledDone[k] && cc.r === card.r && cc.s === card.s);
-  if (!open) return false;
-  return R.players[i].hand.filter(c => c.r === 'K' && c.s === card.s).length < 2;
+  return R.called.some((cc, k) => !R.calledDone[k] && cc.r === card.r && cc.s === card.s);
 }
 function botPlay(R, i) {
   const T = tuneOf(R, i);
@@ -655,8 +670,20 @@ function botPlay(R, i) {
     if (i === R.bidder && !(R.calledDone[0] && R.calledDone[1])) {
       for (let k = 0; k < 2; k++) {
         if (R.calledDone[k]) continue;
-        const s = R.called[k].s;
-        const feeler = opts.filter(c => c.s === s && ptsOf(c) === 0)
+        const cc = R.called[k];
+        const inSuit = opts.filter(c => c.s === cc.s);
+        if (!inSuit.length) continue;
+        /* Holding the called card myself, the card to lead is the one just
+           below it, not the card itself. Whoever has the other copy must spend
+           it to win the trick, so the partnership comes out anyway, my own copy
+           stays where it is, and the opposition is a round of the suit lighter
+           for it. */
+        if (hand.some(c => c.r === cc.r && c.s === cc.s)) {
+          const below = inSuit.filter(c => RV[c.r] < RV[cc.r])
+            .sort((a, b) => RV[b.r] - RV[a.r])[0];
+          if (below) return doPlay(R, i, below.id);
+        }
+        const feeler = inSuit.filter(c => ptsOf(c) === 0)
           .sort((a, b) => RV[a.r] - RV[b.r])[0];
         if (feeler) return doPlay(R, i, feeler.id);
       }
@@ -699,8 +726,19 @@ function botPlay(R, i) {
   }
   /* Holding a called card and not yet shown: lay it at the first chance rather
      than sitting on it. Coming in late costs the side points, because until the
-     bidder knows who you are neither of you knows which way to push a trick. */
-  if (!R.team.has(i)) {
+     bidder knows who you are neither of you knows which way to push a trick.
+
+     Not onto a trick the bidder is already taking, though. Beating his king
+     with the called ace spends both of the side's high cards of that suit on
+     one trick, when between them they could have won two. That holds whether
+     or not he is sitting on the other copy, so it does not rest on guessing
+     where that copy is.
+
+     Holding it instead loses nothing either way. The next lower lead in the
+     suit is still a chance to come in, and in the hands where that chance
+     never arrives, what is left is a commanding card nobody can take off you.
+     Wait for a trick that actually needs it. */
+  if (!R.team.has(i) && !friendly) {
     for (let k = 0; k < 2; k++) {
       if (R.calledDone[k]) continue;
       const cc = R.called[k];
@@ -828,7 +866,12 @@ function viewFor(R, me) {
     dealNo: R.dealNo, totalDeals: R.totalDeals, handSize: R.handSize,
     trump: R.trump, called: R.called, calledDone: R.calledDone,
     bidder: R.bidder, bidAmount: R.bidAmount, dealer: R.dealer,
-    team: [...R.team], secretMate: R.privateTeam.has(me) && !R.team.has(me) && R.bidder !== me,
+    team: [...R.team],
+    /* Told to you because it is your own deduction to make: the calls were
+       announced and the cards are in your hand. The bots work it out the same
+       way, so leaving it off your screen would have handed them the one thing
+       they know that you were not being shown. */
+    secretMate: (R.privateTeam.has(me) || holdsOpenCall(R, me)) && !R.team.has(me) && R.bidder !== me,
     teamPts: R.team.size ? teamPoints(R) : 0,
     trick: R.trick.map(t => ({ p: t.p, card: t.card })),
     trickNo: Math.min(R.trickNo, R.handSize),
