@@ -273,6 +273,37 @@ function unitTests() {
     [C('K','H',965), C('5','H',966), C('A','H',967)], 0);
   eq('and so is a bidder who has already been beaten', bidderBeaten.played, 'AH');
 
+  /* From a real hand. Bidder, spades trump, called K♠ and A♥. One partner lays
+     the called ace and is winning the trick. The other holds the called king of
+     trumps, is void in hearts, and has plenty else to throw — and cut his own
+     partner's winning trick with it to come in. Two called cards spent on one
+     trick that was already won, and the king of trumps gone with them. */
+  const secondPartner = [
+    C('K','S',1000),C('8','D',1001),C('7','D',1002),C('9','C',1003),C('8','C',1004)
+  ];
+  const R10 = table([[], [], [], [], secondPartner, []]);
+  R10.phase = 'play'; R10.trump = 'S'; R10.bidder = 0; R10.bidAmount = 140;
+  R10.called = [{ r: 'K', s: 'S' }, { r: 'A', s: 'H' }];
+  R10.calledDone = [false, true];          // the ace is down, the king is not
+  R10.team = new Set([0, 2]);              // seat 2 came in on the ace
+  R10.privateTeam = new Set([0, 2]);
+  R10.partnerAt = [null, 2];
+  R10.trickNo = 5; R10.leader = 1; R10.lead = 'H';
+  R10.seen = { AH: 1 };
+  R10.trick = [
+    { p: 1, card: C('9','H',1005) },       // an opponent leads
+    { p: 2, card: C('A','H',1006) },       // the first partner takes it with the called ace
+    { p: 3, card: C('6','H',1007) }
+  ];
+  ok('the second partner knows the first one is on his side',
+    G.knownMate(R10, 4, 2), '');
+  G.botPlay(R10, 4);
+  const cutWith = R10.trick.length > 3 ? R10.trick[3].card : null;
+  ok('and does not cut that trick with the called king of trumps',
+    cutWith && cutWith.s !== 'S',
+    'played ' + (cutWith ? cutWith.r + cutWith.s : 'nothing'));
+  stop(R10);
+
   /* A partner has already cut the trick, so the points are coming to your side
      whatever you do. Throwing a trump on top of that is gone for nothing, even
      when the trump carries points itself — that card could have cut a whole

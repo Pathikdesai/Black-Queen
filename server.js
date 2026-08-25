@@ -515,10 +515,11 @@ function botDeclare(R, i) {
   if (!pick.length) { pick.push({ r: 'A', s: trump }, { r: 'K', s: trump }); }
   doDeclare(R, i, trump, [{ r: pick[0].r, s: pick[0].s }, { r: pick[1].r, s: pick[1].s }]);
 }
-/* Holding a called card that has not come down yet. The calls are announced to
-   the whole table and you can see your own hand, so working out that you are
-   going to be the bidder's partner is deduction anybody at the table can make,
-   not a look at somebody else's cards. */
+/* Holding a called card that has not come down yet. The bidder named that card
+   out loud to find a partner, so whoever is holding it is the partner he is
+   looking for — and you can see your own hand. Working that out is deduction
+   anybody at the table can make, not a look at somebody else's cards, and it
+   holds however the two copies happen to be split. */
 function holdsOpenCall(R, i) {
   const p = R.players[i];
   if (!p || !R.called) return false;
@@ -727,10 +728,16 @@ function botPlay(R, i) {
      than sitting on it. Coming in late costs the side points, because until the
      bidder knows who you are neither of you knows which way to push a trick.
 
-     Not onto a trick the bidder is already taking, though. He led under the
-     card he called, which usually means he is holding the other copy, so his
-     king is winning anyway. Spending the ace there gains the side nothing and
-     costs it the ace. Wait for a trick that needs it. */
+     Not onto a trick the bidder is already taking, though. Beating his king
+     with the called ace spends both of the side's high cards of that suit on
+     one trick, when between them they could have won two. That holds whether
+     or not he is sitting on the other copy, so it does not rest on guessing
+     where that copy is.
+
+     Holding it instead loses nothing either way. The next lower lead in the
+     suit is still a chance to come in, and in the hands where that chance
+     never arrives, what is left is a commanding card nobody can take off you.
+     Wait for a trick that actually needs it. */
   if (!R.team.has(i) && !friendly) {
     for (let k = 0; k < 2; k++) {
       if (R.calledDone[k]) continue;
