@@ -526,6 +526,13 @@ function holdsOpenCall(R, i) {
   return R.called.some((cc, k) =>
     cc && !R.calledDone[k] && p.hand.some(c => c.r === cc.r && c.s === cc.s));
 }
+/* The bidding side is public once both calls have been answered: each called
+   card was either laid, which named a partner out loud, or declared dead
+   because no copy was left outside the side. Nothing is pending after that, so
+   the table has seen everyone who is playing with the bidder. */
+function sidesSettled(R) {
+  return !!(R.calledDone && R.calledDone[0] && R.calledDone[1]);
+}
 function knownMate(R, i, j) {
   if (R.team.has(i) && R.team.has(j)) return true;
   /* Until this fix a player sitting on the called ace did not know whose side
@@ -534,7 +541,38 @@ function knownMate(R, i, j) {
      wanted to keep. */
   const onSide = R.privateTeam.has(i) || holdsOpenCall(R, i);
   if (onSide && (j === R.bidder || R.team.has(j))) return true;
+  /* Everyone the bidder is not playing with is playing against him, and they
+     are playing with each other. Obvious at a real table and it was missing
+     here: the bidding side was the only side the bots recognised, so once the
+     partners were known the three or four defenders still treated one another
+     as strangers — cutting each other's winning tricks, keeping points back
+     from a hand that was already on their own side, and counting a fellow
+     defender as somebody who might catch the black queen. Only the two public
+     facts are used: who is on the bidding side, and that no call is pending. */
+  if (sidesSettled(R) && !R.team.has(i) && !R.team.has(j)) return true;
   return false;
+}
+
+/* Is this trick already my side's? Not the same question as who is winning it
+   at this instant. A partner in front with opponents still to play has won
+   nothing yet, and treating that as settled is how a defender sat on the ace of
+   the led suit, let a partner's jack ride, and watched an opponent take the
+   trick with the queen. So: a mate has to be in front, and nothing the players
+   behind me could still be holding may beat what he played.
+
+   `best` is the index within the trick of the card currently winning. */
+function oursAlready(R, i, best) {
+  if (!knownMate(R, i, R.trick[best].p)) return false;
+  const after = R.n - R.trick.length - 1;
+  let strangers = 0;
+  for (let k = 1; k <= after; k++) if (!knownMate(R, i, (i + k) % R.n)) strangers++;
+  if (strangers === 0) return true;
+  const top = R.trick[best].card;
+  // a higher card of the suit that is actually winning may still be out there
+  if (topOut(R, i, top.s) > RV[top.r]) return false;
+  // or somebody behind is out of the led suit and holds a trump to cut with
+  if (top.s !== R.trump && trumpsOut(R, i) > 0 && opponentVoid(R, i, R.lead)) return false;
+  return true;
 }
 
 /* ---- what a bot may fairly work out from the table ----
@@ -600,6 +638,19 @@ function revealNow(R, i, card, pot, last) {
    Every other card is judged on the trick alone. */
 function safeToRisk(R, i, card, last) {
   if (!(card.r === 'Q' && card.s === 'S')) return true;
+  /* Letting her go is really one question: does my own side end up with the
+     trick she lands in. That can fail two ways, and only one of them was being
+     checked. Somebody behind me takes it — the count below. Or it is already
+     being taken by the other side, and I hand them twenty for nothing. Being
+     last to play made the old rule say yes without ever looking at who was
+     winning. */
+  if (R.trick.length) {
+    let best = 0;
+    for (let k = 1; k < R.trick.length; k++)
+      if (beats(R.trick[k].card, R.trick[best].card, R.trump, R.lead)) best = k;
+    const takingIt = beats(card, R.trick[best].card, R.trump, R.lead);
+    if (!takingIt && !oursAlready(R, i, best)) return false;
+  }
   if (last) return true;
   const after = R.n - R.trick.length - 1;
   let strangers = 0;
@@ -625,6 +676,11 @@ function trumpsOut(R, i) {
    better — the holder of the other copy has to spend it to win the trick,
    which brings them out as a partner just the same, while the ace stays in
    hand for the big card that turns up later. */
+/* A card the bidder called for, still waiting to come down. */
+function openCall(R, card) {
+  return !!R.called && R.called.some((cc, k) =>
+    !R.calledDone[k] && cc && cc.r === card.r && cc.s === card.s);
+}
 function ownCallToHold(R, i, card) {
   if (i !== R.bidder) return false;
   return R.called.some((cc, k) => !R.calledDone[k] && cc.r === card.r && cc.s === card.s);
@@ -707,11 +763,20 @@ function botPlay(R, i) {
   let best = 0;
   for (let k = 1; k < R.trick.length; k++)
     if (beats(R.trick[k].card, R.trick[best].card, R.trump, R.lead)) best = k;
-  const friendly = knownMate(R, i, R.trick[best].p);
+  /* Two different questions, and they used to be one. `mateHolds` is who is in
+     front right now — enough to decide not to waste a trump cutting him.
+     `friendly` is whether the trick is actually coming to us, which is what the
+     decision to take it or let it go has to rest on. */
+  const mateHolds = knownMate(R, i, R.trick[best].p);
+  const friendly = mateHolds && oursAlready(R, i, best);
   const winners = opts.filter(c => beats(c, R.trick[best].card, R.trump, R.lead));
 
-  // Partner is holding the trick and nobody is left to take it off them: feed the points.
-  if (friendly && last) {
+  /* The trick is my side's and nobody left can take it off us: feed the points.
+     This used to ask whether I was the last to play, which was a rough stand-in
+     for the same thing — and too rough. With only partners left behind me the
+     trick is just as safe from fourth seat as from sixth, and the ten I kept
+     back for no reason was a ten my own side did not collect. */
+  if (friendly) {
     /* Feed the trick, but never with a trump, and never with a card that takes
        it off them. A trump thrown onto a trick a partner has already won is
        gone for nothing: those points were coming to your side either way, and
@@ -738,7 +803,7 @@ function botPlay(R, i) {
      suit is still a chance to come in, and in the hands where that chance
      never arrives, what is left is a commanding card nobody can take off you.
      Wait for a trick that actually needs it. */
-  if (!R.team.has(i) && !friendly) {
+  if (!R.team.has(i) && !mateHolds) {
     for (let k = 0; k < 2; k++) {
       if (R.calledDone[k]) continue;
       const cc = R.called[k];
@@ -758,12 +823,22 @@ function botPlay(R, i) {
       if (revealNow(R, i, mine, pot, last)) return doPlay(R, i, mine.id);
     }
   }
-  if (!friendly && winners.length) {
+  /* A partner is in front and the card that would take it off him is the very
+     card he called. That one stays down even when the trick is not yet safe:
+     two cards that win two tricks between them win one when they are spent
+     together, and the same holds however the two copies are split. Everything
+     else in the hand is still allowed to take the trick. */
+  let takeable = winners;
+  if (mateHolds) {
+    const notTheCall = winners.filter(c => !openCall(R, c));
+    if (notTheCall.length !== winners.length) takeable = notTheCall;
+  }
+  if (!friendly && takeable.length) {
     /* Spend a card on this trick when there is something in it, when I am last
        and can take it cheaply, or when everyone still to play is void in the
        led suit and the pot is about to be cut away from me anyway. */
-    const affordable = winners.filter(c => safeToRisk(R, i, c, last));
-    let usable = affordable.length ? affordable : (last ? winners : []);
+    const affordable = takeable.filter(c => safeToRisk(R, i, c, last));
+    let usable = affordable.length ? affordable : (last ? takeable : []);
     /* Keep the queen catchers back unless this is the trick worth catching.
        A queen already on the cloth is exactly what the ace was saved for; so
        is any trick already carrying a queen's worth of points. Below that,
@@ -799,7 +874,7 @@ function botPlay(R, i) {
      own side and spends a trump to do it, so a trump goes last of all — even
      a worthless one. */
   let field = opts;
-  if (friendly) {
+  if (mateHolds) {
     const offTrump = opts.filter(c => c.s !== R.trump);
     if (offTrump.length) field = offTrump;
   }

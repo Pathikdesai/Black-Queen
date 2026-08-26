@@ -140,7 +140,12 @@ function unitTests() {
   function follows(hand, trickCards, played) {
     const R = table([[], [], [], hand, [], []]);
     R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 130;
-    R.team = new Set([0]); R.privateTeam = new Set([0]);
+    /* Seat 2 is on the bidding side, so the card in front of our player is an
+       opponent's whichever of the three tricks below is being played. Without
+       that this table would be one bidder against five partners, and letting a
+       partner's ten ride is the right play for a reason that has nothing to do
+       with catching queens. */
+    R.team = new Set([0, 2]); R.privateTeam = new Set([0, 2]);
     R.called = [{ r: 'A', s: 'D' }, { r: 'K', s: 'D' }]; R.calledDone = [true, true];
     R.trickNo = 6; R.leader = 0; R.lead = trickCards[0].s;
     R.trick = trickCards.map((c, n) => ({ p: n, card: c }));
@@ -305,6 +310,71 @@ function unitTests() {
   ok('a trick with no points yet is still taken rather than fed five',
     chose && chose.r === 'A', 'played ' + (chose ? chose.r + chose.s : 'nothing'));
   stop(R13);
+
+  /* Everyone the bidder is not playing with is playing against him, and so with
+     each other. The bots only ever recognised the bidding side, so once both
+     calls were answered the defenders still treated one another as strangers.
+     Nothing hidden is used to work this out: who is on the bidding side is
+     announced when a called card is laid, and both calls being answered is on
+     the table for all to see. */
+  function defenders(hand, trick, opts) {
+    const seats = [[], [], [], [], [], []];
+    seats[3] = hand;
+    const R = table(seats);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 140;
+    R.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'C' }];
+    R.calledDone = (opts && opts.calledDone) || [true, true];
+    R.team = new Set([0, 1]); R.privateTeam = new Set([0, 1]);
+    R.trickNo = 9; R.leader = trick[0].p; R.lead = trick[0].card.s;
+    R.trick = trick.map(t => ({ p: t.p, card: t.card }));
+    R.trick.forEach(t => { R.seen[t.card.r + t.card.s] = (R.seen[t.card.r + t.card.s] || 0) + 1; });
+    G.botPlay(R, 3);
+    const out = R.trick.length > trick.length ? R.trick[R.trick.length - 1].card : null;
+    stop(R);
+    return out ? out.r + out.s : 'nothing';
+  }
+  const R14 = table([[], [], [], [], [], []]);
+  R14.bidder = 0; R14.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'C' }];
+  R14.team = new Set([0, 1]); R14.privateTeam = new Set([0, 1]);
+  R14.calledDone = [true, false];
+  ok('while a call is out, one defender cannot claim another',
+    !G.knownMate(R14, 3, 4), '');
+  R14.calledDone = [true, true];
+  ok('once both calls are answered, two defenders are a side',
+    G.knownMate(R14, 3, 4), '');
+  ok('and a defender is still not the bidding side',
+    !G.knownMate(R14, 3, 0) && !G.knownMate(R14, 3, 1), '');
+  stop(R14);
+
+  /* Seat 5 is a fellow defender and has the trick sewn up: he leads the ace of
+     the suit, and the two behind our player are the last of the defenders. The
+     ten goes to him rather than being kept back. */
+  const fed = defenders(
+    [C('10','D',1300), C('4','D',1301), C('9','C',1302), C('8','H',1303)],
+    [{ p: 5, card: C('A','D',1304) }, { p: 0, card: C('6','D',1305) },
+     { p: 1, card: C('5','D',1306) }, { p: 2, card: C('7','D',1307) }]);
+  eq('and a defender feeds his ten to a defender who has the trick won', fed, '10D');
+
+  /* Same trick, but the sides are not settled yet: one call is still out, so
+     any of the others could still turn up as the bidder's partner. Nothing may
+     be assumed, and the ten stays in hand. */
+  const guarded = defenders(
+    [C('10','D',1310), C('4','D',1311), C('9','C',1312), C('8','H',1313)],
+    [{ p: 5, card: C('A','D',1314) }, { p: 0, card: C('6','D',1315) },
+     { p: 1, card: C('5','D',1316) }, { p: 2, card: C('7','D',1317) }],
+    { calledDone: [true, false] });
+  ok('but not while a call is still out and anyone could be the partner',
+    guarded !== '10D', 'played ' + guarded);
+
+  /* A defender is winning the trick and our player is void in the suit. Cutting
+     it with a trump takes the points off his own side and burns a trump to do
+     it, so the trump stays and something worthless goes. */
+  const notCut = defenders(
+    [C('6','S',1320), C('9','C',1321), C('8','H',1322)],
+    [{ p: 5, card: C('A','D',1323) }, { p: 0, card: C('6','D',1324) },
+     { p: 1, card: C('5','D',1325) }, { p: 2, card: C('7','D',1326) }]);
+  ok('and does not cut a fellow defender who is taking the trick',
+    notCut !== '6S', 'played ' + notCut);
 
   /* From a real hand, and an expensive one. Bidder, spades trump, called A♠ and
      Q♠. The bidder leads 10♠, an opponent covers with the king, and the player
