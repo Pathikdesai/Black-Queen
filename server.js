@@ -885,14 +885,29 @@ function botPlay(R, i) {
          real table: the called ace of clubs came down, and the bidder followed
          with the second one.
 
-         So the smallest trump that does not take the trick off the partner goes
-         instead. If every legal trump beats his card the lowest of them goes,
-         which is the cheapest way to be forced into it, and with only one legal
-         card that card is played whatever it is. */
+         What has to be protected is a card that still controls the suit —
+         one nothing outstanding can beat. Everything below that is not
+         control, it is just a card, and if it carries points those points may
+         as well go to a trick the side has already won. Holding a ten back
+         here preserves nothing and banks nothing: the ace and king are still
+         out, so the ten was never going to take a trick anyway. Taking the
+         smallest card every time instead was tried and measured, and it cost
+         about a point a deal for exactly that reason.
+
+         So: the fattest card that is not a controller, and the smallest of
+         those when several are worth the same. If everything left controls the
+         suit the smallest of them goes, which is the cheapest way to be forced
+         into it, and a lone legal card is played whatever it is — keeping a
+         trump is a preference, never a reason to break following suit. */
       const spare = opts.filter(c => !beats(c, R.trick[best].card, R.trump, R.lead));
       const from = spare.length ? spare : opts;
-      const low = from.slice().sort((a, b) => RV[a.r] - RV[b.r])[0];
-      return doPlay(R, i, low.id);
+      const top = topOut(R, i, R.trump);
+      const spendable = from.filter(c => RV[c.r] < top);
+      if (spendable.length) {
+        return doPlay(R, i, spendable.slice().sort((a, b) =>
+          ptsOf(b) - ptsOf(a) || RV[a.r] - RV[b.r])[0].id);
+      }
+      return doPlay(R, i, from.slice().sort((a, b) => RV[a.r] - RV[b.r])[0].id);
     }
   }
   /* Holding a called card and not yet shown: lay it at the first chance rather

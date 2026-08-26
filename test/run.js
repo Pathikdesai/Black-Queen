@@ -496,12 +496,23 @@ function unitTests() {
     ace.legal.join(','), 'AC,7C');
   eq('and the bidder keeps the ace of trumps, playing the seven', ace.played, '7C');
 
-  /* Three trumps rather than two, so it has to pick the smallest and not merely
-     avoid the biggest. The king is kept for a trick of its own. */
+  /* What has to be kept is a card that still controls the suit. The ten does
+     not: both aces and both kings are still unaccounted for, so it was never
+     going to take a trick, and its five points may as well go to a trick the
+     side has already won. Taking the smallest card every time instead was
+     tried and measured, and cost about a point a deal. */
   const three = followsTrump(
     [C('K','C',id18++), C('10','C',id18++), C('4','C',id18++), C('9','H',id18++)],
     C('A','C',id18++));
-  eq('with three trumps to choose from it plays the smallest', three.played, '4C');
+  eq('a trump that controls nothing is spent on points, not hoarded',
+    three.played, '10C');
+
+  /* Nothing worth points among them, so the tiebreak decides and the smallest
+     goes. Without it the king would be as good a throw as the four. */
+  const noPoints = followsTrump(
+    [C('K','C',id18++), C('J','C',id18++), C('4','C',id18++), C('9','H',id18++)],
+    C('A','C',id18++));
+  eq('and among trumps worth nothing the smallest goes', noPoints.played, '4C');
 
   /* Nothing to choose from: the high trump is the only legal card, so it goes.
      Preserving it is a preference, not a rule that can break following suit. */
