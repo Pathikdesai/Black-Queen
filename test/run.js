@@ -460,6 +460,97 @@ function unitTests() {
   ok('and does not cut a fellow defender who is taking the trick',
     notCut !== '6S', 'played ' + notCut);
 
+  /* From a real table. Clubs trump, the called ace of clubs laid by the partner
+     who came in on it, and the bidder holding the second copy. Trump was led so
+     trump must be followed, and the only two legal cards are that ace and a
+     seven. The ace cannot even win — identical cards tie in favour of whoever
+     played first, and the partner played first — so putting it down spends the
+     card that could have taken a whole trick later, to add ten points the side
+     was already collecting. The seven goes. */
+  let id18 = 1700;
+  function followsTrump(hand, partnerCard, gone) {
+    const seats = [[], [], [], [], [], []];
+    seats[0] = hand;                       // Ankush, the bidder
+    seats[5] = [partnerCard];              // Pathik, his confirmed partner, on lead
+    const R = table(seats);
+    R.players[0].name = 'Ankush'; R.players[5].name = 'Pathik';
+    R.phase = 'play'; R.trump = 'C'; R.bidder = 0; R.bidAmount = 150;
+    R.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'H' }];
+    R.calledDone = [true, true];           // the call is spent, the sides are public
+    R.team = new Set([0, 5]); R.privateTeam = new Set([0, 5]);
+    // Pathik leads, so the turn falls to Ankush in the next seat
+    R.trickNo = 5; R.leader = 5; R.lead = 'C';
+    R.trick = [{ p: 5, card: partnerCard }];
+    R.players[5].hand = [];
+    R.seen[partnerCard.r + partnerCard.s] = 1;
+    Object.entries(gone || {}).forEach(([k, n]) => { R.seen[k] = n; });
+    const legal = G.legal(R.players[0].hand, 'C').map(c => c.r + c.s);
+    G.botPlay(R, 0);
+    const out = R.trick.length > 1 ? R.trick[1].card : null;
+    stop(R);
+    return { legal, played: out ? out.r + out.s : 'nothing' };
+  }
+  const ace = followsTrump(
+    [C('A','C',id18++), C('7','C',id18++), C('9','H',id18++)], C('A','C',id18++));
+  eq('following a partner\'s trump, both trumps are legal and the off suit is not',
+    ace.legal.join(','), 'AC,7C');
+  eq('and the bidder keeps the ace of trumps, playing the seven', ace.played, '7C');
+
+  /* What has to be kept is a card that still controls the suit. The ten does
+     not: both aces and both kings are still unaccounted for, so it was never
+     going to take a trick, and its five points may as well go to a trick the
+     side has already won. Taking the smallest card every time instead was
+     tried and measured, and cost about a point a deal. */
+  const three = followsTrump(
+    [C('K','C',id18++), C('10','C',id18++), C('4','C',id18++), C('9','H',id18++)],
+    C('A','C',id18++));
+  eq('a trump that controls nothing is spent on points, not hoarded',
+    three.played, '10C');
+
+  /* Nothing worth points among them, so the tiebreak decides and the smallest
+     goes. Without it the king would be as good a throw as the four. */
+  const noPoints = followsTrump(
+    [C('K','C',id18++), C('J','C',id18++), C('4','C',id18++), C('9','H',id18++)],
+    C('A','C',id18++));
+  eq('and among trumps worth nothing the smallest goes', noPoints.played, '4C');
+
+  /* Nothing to choose from: the high trump is the only legal card, so it goes.
+     Preserving it is a preference, not a rule that can break following suit. */
+  const forced = followsTrump([C('A','C',id18++), C('9','H',id18++)], C('7','C',id18++));
+  eq('but a lone legal trump is still played, whatever it is', forced.played, 'AC');
+
+  /* Every legal trump beats the partner's card, so one of them has to take it
+     off him whatever happens, and the cheapest does. His nine is safe from the
+     rest of the table — everything above it is accounted for bar the two cards
+     in this hand — so this really is the partner-is-winning branch and not the
+     bot deciding the trick is in danger. */
+  const allBeat = followsTrump(
+    [C('A','C',id18++), C('K','C',id18++), C('9','H',id18++)], C('9','C',id18++),
+    { AC: 1, KC: 1, QC: 2, JC: 2, '10C': 2 });
+  eq('and when every legal trump beats him, the smallest one does', allBeat.played, 'KC');
+
+  /* Off trump nothing changes: a partner safely winning still gets the points
+     fed to him, which is the behaviour this fix had to leave alone. */
+  const offSuit = (() => {
+    const seats = [[], [], [], [], [], []];
+    seats[0] = [C('10','H',id18++), C('4','H',id18++), C('8','S',id18++)];
+    seats[5] = [C('A','H',id18++)];
+    const R = table(seats);
+    R.phase = 'play'; R.trump = 'C'; R.bidder = 0; R.bidAmount = 150;
+    R.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'C' }]; R.calledDone = [true, true];
+    R.team = new Set([0, 5]); R.privateTeam = new Set([0, 5]);
+    R.trickNo = 5; R.leader = 5; R.lead = 'H';
+    R.trick = [{ p: 5, card: R.players[5].hand[0] }];
+    R.players[5].hand = [];
+    R.seen['AH'] = 1;
+    G.botPlay(R, 0);
+    const out = R.trick.length > 1 ? R.trick[1].card : null;
+    stop(R);
+    return out ? out.r + out.s : 'nothing';
+  })();
+  eq('off trump the ten is still fed to a partner who has the trick won',
+    offSuit, '10H');
+
   /* The black queen has become the top spade left, so the cashing rule would
      happily lead her. Away from trump that is twenty points offered to anyone
      holding a trump and no spades, and it is cut about two thirds of the time.

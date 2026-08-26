@@ -871,11 +871,44 @@ function botPlay(R, i) {
        that trump could have cut a whole trick later. Anything else in the hand
        goes first, and a trump only when there is genuinely nothing else. */
     const offTrump = opts.filter(c => c.s !== R.trump);
-    const keepTrumps = offTrump.length ? offTrump : opts;
-    const gift = keepTrumps.filter(c => !beats(c, R.trick[best].card, R.trump, R.lead));
-    const from = gift.length ? gift : keepTrumps;
-    const fat = from.slice().sort((a, b) => ptsOf(b) - ptsOf(a))[0];
-    if (ptsOf(fat) > 0) return doPlay(R, i, fat.id);
+    if (offTrump.length) {
+      const gift = offTrump.filter(c => !beats(c, R.trick[best].card, R.trump, R.lead));
+      const from = gift.length ? gift : offTrump;
+      const fat = from.slice().sort((a, b) => ptsOf(b) - ptsOf(a))[0];
+      if (ptsOf(fat) > 0) return doPlay(R, i, fat.id);
+    } else {
+      /* Trump was led, so trump has to be followed and there is nothing else in
+         the hand to give. Feeding by points here is not feeding at all — the
+         fattest trump is the ace, and throwing it onto a trick a partner has
+         already won spends the card that could have taken a whole trick of its
+         own to add ten points the side was collecting anyway. It happened at a
+         real table: the called ace of clubs came down, and the bidder followed
+         with the second one.
+
+         What has to be protected is a card that still controls the suit —
+         one nothing outstanding can beat. Everything below that is not
+         control, it is just a card, and if it carries points those points may
+         as well go to a trick the side has already won. Holding a ten back
+         here preserves nothing and banks nothing: the ace and king are still
+         out, so the ten was never going to take a trick anyway. Taking the
+         smallest card every time instead was tried and measured, and it cost
+         about a point a deal for exactly that reason.
+
+         So: the fattest card that is not a controller, and the smallest of
+         those when several are worth the same. If everything left controls the
+         suit the smallest of them goes, which is the cheapest way to be forced
+         into it, and a lone legal card is played whatever it is — keeping a
+         trump is a preference, never a reason to break following suit. */
+      const spare = opts.filter(c => !beats(c, R.trick[best].card, R.trump, R.lead));
+      const from = spare.length ? spare : opts;
+      const top = topOut(R, i, R.trump);
+      const spendable = from.filter(c => RV[c.r] < top);
+      if (spendable.length) {
+        return doPlay(R, i, spendable.slice().sort((a, b) =>
+          ptsOf(b) - ptsOf(a) || RV[a.r] - RV[b.r])[0].id);
+      }
+      return doPlay(R, i, from.slice().sort((a, b) => RV[a.r] - RV[b.r])[0].id);
+    }
   }
   /* Holding a called card and not yet shown: lay it at the first chance rather
      than sitting on it. Coming in late costs the side points, because until the
