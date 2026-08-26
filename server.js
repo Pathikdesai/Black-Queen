@@ -384,6 +384,9 @@ const TUNE = {
   bidKing: 2, bidVoid: 3, bidPoints: 0.15, bidNoise: 10,
   // which suit to name as trump
   suitAce: 1, suitKing: 0.5, suitQueenBonus: 1.5, suitQueenNeeds: 5,
+  suitDupNeeds: 5,     // cards in a suit before a second ace or king counts twice
+  dupCallLen: 6,       // cards in a suit before calling the same card for both slots
+  dupCallPenalty: 12,  // what that second call gives up: both copies may be one player
   // which two cards to call for
   callQueenTrump: 88, callQueenOff: 62, callQueenHeld: 14,
   callAceTrump: 90, callAceOff: 60, callAceLen: 2, callAceHeld: 8,
@@ -449,8 +452,16 @@ function suitStrength(h, s, T) {
   T = T || TUNE;
   const n = h.filter(c => c.s === s).length;
   if (!n) return -1;
-  const has = r => h.some(c => c.r === r && c.s === s);
-  let v = n + (has('A') ? T.suitAce : 0) + (has('K') ? T.suitKing : 0);
+  /* Two aces of a suit really are worth more than one — the second wins a
+     second round of it, since identical cards tie in favour of whoever played
+     first. But that is a reason to like the suit, not a reason to make it
+     trump. Three cards of a suit with two aces in them is still a three card
+     holding: name it trump and you have two tricks and then nothing, with no
+     length left to cut anybody. So the second copy only counts once the suit
+     is long enough to be a trump suit at all. */
+  const copies = r => h.filter(c => c.r === r && c.s === s).length;
+  const worth = r => n >= T.suitDupNeeds ? Math.min(2, copies(r)) : Math.min(1, copies(r));
+  let v = n + worth('A') * T.suitAce + worth('K') * T.suitKing;
   /* Spades are worth more only when you hold a black queen AND enough spades
      to actually protect it. Three spades and a queen is not a spade hand: name
      spades there and the suit runs away from you with your own twenty points
@@ -512,12 +523,30 @@ function botDeclare(R, i) {
            - held('K' + s) * T.callKingHeld });
     }
   });
+  /* Naming the same card for both calls is legal, and with both copies outside
+     the hand each one can bring somebody in. It is a length play rather than a
+     default: worth doing in a suit you are long in, because that is where a
+     partner is worth having and where you can keep the suit under control.
+     The drawback belongs in the decision too — if both copies happen to sit
+     with the same player he joins once and you finish with one partner instead
+     of two, so a short suit is no place to spend a whole call on it.
+
+     A second entry is added for the card rather than the pick being repeated
+     afterwards, so it has to win its slot against every other call on merit,
+     carrying a penalty for the risk above. */
+  for (const c of cands.slice()) {
+    if (by[c.s] < T.dupCallLen) continue;
+    if (COPIES(c.r) - held(c.r + c.s) < 2) continue;
+    cands.push({ r: c.r, s: c.s, w: c.w - T.dupCallPenalty, twice: true });
+  }
   cands.sort((a, b) => b.w - a.w);
-  const seen = new Set(), pick = [];
+  const used = new Map(), pick = [];
   for (const c of cands) {
     const k = c.r + c.s;
-    if (seen.has(k)) continue;
-    seen.add(k); pick.push(c);
+    const cap = COPIES(c.r) - held(k) >= 2 && by[c.s] >= T.dupCallLen ? 2 : 1;
+    const n = used.get(k) || 0;
+    if (n >= cap) continue;
+    used.set(k, n + 1); pick.push(c);
     if (pick.length === 2) break;
   }
   /* Any hand holding cards at all has at least an ace and a king to name in
@@ -747,18 +776,24 @@ function botPlay(R, i) {
        cut if it waits. This is the opposite of the instinct to save the big
        card, and it is right for the same reason the instinct is wrong — the ace
        is not getting more valuable while it sits there, only easier to trump. */
-    /* This lead does not consult the black queen rule, and that is deliberate —
-       it was tried the other way and measured. She becomes the top spade left
-       the moment the four cards above her are gone, and leading her then does
-       get her cut about two times in three, which looks damning until you ask
-       where she ends up instead. Blocking the lead moved that not at all: over
-       3,900 queens the holder's own side finished with her 60.0% of the time
-       with the guard and 59.9% without, and the score came out 0.3 a deal
-       worse for holding her. Off trump she is a liability from the moment she
-       is dealt; refusing to lead her only postpones losing her, usually to the
-       last trick where there is no choice at all. Leave it as it is. */
+    /* The black queen rule applies here too. Being the top spade left says
+       nothing about a trump, and leading her into a table where somebody is out
+       of spades gets her cut about two thirds of the time.
+
+       Where spades are trump this costs nothing and blocks nothing: she cannot
+       be cut, so the only thing the rule asks is whether a higher spade is
+       still out, which is the right question anyway.
+
+       Away from trump it is a judgement, and it is a player's rather than the
+       tuner's. Measured on fixed deals it is worth nothing either way — about
+       a tenth of a point a deal, and over 3,900 queens the holder's own side
+       finished with her 60.0% of the time with the guard and 59.9% without, so
+       holding her changes when she is lost rather than whether. It is in
+       because a bot throwing away twenty points to a cut is wrong to watch and
+       worse to be partnered with, and that is a good enough reason on its own. */
     const cashable = opts.filter(c => c.s !== R.trump
       && RV[c.r] >= topOut(R, i, c.s)
+      && safeToRisk(R, i, c, false)
       && !(opponentVoid(R, i, c.s) && trumpsOut(R, i) > 0));
     if (cashable.length) {
       cashable.sort((a, b) =>
