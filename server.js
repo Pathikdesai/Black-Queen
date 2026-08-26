@@ -384,6 +384,9 @@ const TUNE = {
   bidKing: 2, bidVoid: 3, bidPoints: 0.15, bidNoise: 10,
   // which suit to name as trump
   suitAce: 1, suitKing: 0.5, suitQueenBonus: 1.5, suitQueenNeeds: 5,
+  suitDupNeeds: 5,     // cards in a suit before a second ace or king counts twice
+  dupCallLen: 6,       // cards in a suit before calling the same card for both slots
+  dupCallPenalty: 12,  // what that second call gives up: both copies may be one player
   // which two cards to call for
   callQueenTrump: 88, callQueenOff: 62, callQueenHeld: 14,
   callAceTrump: 90, callAceOff: 60, callAceLen: 2, callAceHeld: 8,
@@ -449,8 +452,16 @@ function suitStrength(h, s, T) {
   T = T || TUNE;
   const n = h.filter(c => c.s === s).length;
   if (!n) return -1;
-  const has = r => h.some(c => c.r === r && c.s === s);
-  let v = n + (has('A') ? T.suitAce : 0) + (has('K') ? T.suitKing : 0);
+  /* Two aces of a suit really are worth more than one — the second wins a
+     second round of it, since identical cards tie in favour of whoever played
+     first. But that is a reason to like the suit, not a reason to make it
+     trump. Three cards of a suit with two aces in them is still a three card
+     holding: name it trump and you have two tricks and then nothing, with no
+     length left to cut anybody. So the second copy only counts once the suit
+     is long enough to be a trump suit at all. */
+  const copies = r => h.filter(c => c.r === r && c.s === s).length;
+  const worth = r => n >= T.suitDupNeeds ? Math.min(2, copies(r)) : Math.min(1, copies(r));
+  let v = n + worth('A') * T.suitAce + worth('K') * T.suitKing;
   /* Spades are worth more only when you hold a black queen AND enough spades
      to actually protect it. Three spades and a queen is not a spade hand: name
      spades there and the suit runs away from you with your own twenty points
@@ -477,6 +488,14 @@ function botDeclare(R, i) {
      must not then do is lay your own copy — that is handled at play time, not
      here.
 
+     Holding *every* copy is a different matter, and it was being treated as the
+     same one. There is no third card to call for, so the call cannot bring
+     anybody in: lay it yourself and it is announced dead, sit on it and it
+     never comes down. Either way the bidder has thrown away one of his two
+     chances at a partner and plays a man short for it. The black queen already
+     had this guard; the ace and the king only had a weight against them, which
+     a strong suit could outvote — and did, on a tenth of all calls.
+
      The calls belong in the trump suit wherever possible. Partners found in
      the suit you control are partners you can actually work with. */
   const held = k => h.filter(c => c.r + c.s === k).length;
@@ -489,23 +508,45 @@ function botDeclare(R, i) {
        worth calling when it can do something: away from trump it is twenty
        points sitting in a suit your partner may not be able to protect, and
        holding both copies there is no third one to call for. */
-    if (s === 'S' && held('QS') < 2) {
+    if (s === 'S' && held('QS') < COPIES('Q')) {
       cands.push({ r: 'Q', s: 'S',
         w: (trumped ? T.callQueenTrump : T.callQueenOff) - held('QS') * T.callQueenHeld });
     }
-    cands.push({ r: 'A', s,
-      w: (trumped ? T.callAceTrump : T.callAceOff - by[s] * T.callAceLen)
-         - held('A' + s) * T.callAceHeld });
-    cands.push({ r: 'K', s,
-      w: (trumped ? T.callKingTrump : T.callKingOff - by[s] * T.callKingLen)
-         - held('K' + s) * T.callKingHeld });
+    if (held('A' + s) < COPIES('A')) {
+      cands.push({ r: 'A', s,
+        w: (trumped ? T.callAceTrump : T.callAceOff - by[s] * T.callAceLen)
+           - held('A' + s) * T.callAceHeld });
+    }
+    if (held('K' + s) < COPIES('K')) {
+      cands.push({ r: 'K', s,
+        w: (trumped ? T.callKingTrump : T.callKingOff - by[s] * T.callKingLen)
+           - held('K' + s) * T.callKingHeld });
+    }
   });
+  /* Naming the same card for both calls is legal, and with both copies outside
+     the hand each one can bring somebody in. It is a length play rather than a
+     default: worth doing in a suit you are long in, because that is where a
+     partner is worth having and where you can keep the suit under control.
+     The drawback belongs in the decision too — if both copies happen to sit
+     with the same player he joins once and you finish with one partner instead
+     of two, so a short suit is no place to spend a whole call on it.
+
+     A second entry is added for the card rather than the pick being repeated
+     afterwards, so it has to win its slot against every other call on merit,
+     carrying a penalty for the risk above. */
+  for (const c of cands.slice()) {
+    if (by[c.s] < T.dupCallLen) continue;
+    if (COPIES(c.r) - held(c.r + c.s) < 2) continue;
+    cands.push({ r: c.r, s: c.s, w: c.w - T.dupCallPenalty, twice: true });
+  }
   cands.sort((a, b) => b.w - a.w);
-  const seen = new Set(), pick = [];
+  const used = new Map(), pick = [];
   for (const c of cands) {
     const k = c.r + c.s;
-    if (seen.has(k)) continue;
-    seen.add(k); pick.push(c);
+    const cap = COPIES(c.r) - held(k) >= 2 && by[c.s] >= T.dupCallLen ? 2 : 1;
+    const n = used.get(k) || 0;
+    if (n >= cap) continue;
+    used.set(k, n + 1); pick.push(c);
     if (pick.length === 2) break;
   }
   /* Any hand holding cards at all has at least an ace and a king to name in
@@ -664,6 +705,31 @@ function safeToRisk(R, i, card, last) {
   const cuttable = R.trump !== 'S' && trumpsOut(R, i) > 0 && R.lead !== R.trump;
   return !beatable && !cuttable;
 }
+/* Put this card in front now and does it stay in front? Only certainties count:
+   a higher card of the suit that is visibly unaccounted for, or a player behind
+   who has already shown out and still has a trump. It is not a guess at hidden
+   hands.
+
+   Worth asking before taking a trick that carries nothing. Winning an empty
+   trick is worth nothing by definition, so the only thing it can do is cost:
+   spend the ten, watch the jack that was plainly still out come down on top of
+   it, and five points go across with the trick. Taking it for the sake of being
+   in front for one seat is not a reason. */
+function holdsUp(R, i, card, last) {
+  if (last) return true;
+  const after = R.n - R.trick.length - 1;
+  let strangers = 0, knownCutter = false;
+  for (let k = 1; k <= after; k++) {
+    const j = (i + k) % R.n;
+    if (knownMate(R, i, j)) continue;
+    strangers++;
+    if (card.s !== R.trump && R.voids[j] && R.voids[j].has(R.lead)) knownCutter = true;
+  }
+  if (strangers === 0) return true;
+  if (topOut(R, i, card.s) > RV[card.r]) return false;
+  if (knownCutter && trumpsOut(R, i) > 0) return false;
+  return true;
+}
 function trumpsOut(R, i) {
   let n = 0;
   for (const r of RANKS) n += stillOut(R, i, R.trump, r);
@@ -710,8 +776,24 @@ function botPlay(R, i) {
        cut if it waits. This is the opposite of the instinct to save the big
        card, and it is right for the same reason the instinct is wrong — the ace
        is not getting more valuable while it sits there, only easier to trump. */
+    /* The black queen rule applies here too. Being the top spade left says
+       nothing about a trump, and leading her into a table where somebody is out
+       of spades gets her cut about two thirds of the time.
+
+       Where spades are trump this costs nothing and blocks nothing: she cannot
+       be cut, so the only thing the rule asks is whether a higher spade is
+       still out, which is the right question anyway.
+
+       Away from trump it is a judgement, and it is a player's rather than the
+       tuner's. Measured on fixed deals it is worth nothing either way — about
+       a tenth of a point a deal, and over 3,900 queens the holder's own side
+       finished with her 60.0% of the time with the guard and 59.9% without, so
+       holding her changes when she is lost rather than whether. It is in
+       because a bot throwing away twenty points to a cut is wrong to watch and
+       worse to be partnered with, and that is a good enough reason on its own. */
     const cashable = opts.filter(c => c.s !== R.trump
       && RV[c.r] >= topOut(R, i, c.s)
+      && safeToRisk(R, i, c, false)
       && !(opponentVoid(R, i, c.s) && trumpsOut(R, i) > 0));
     if (cashable.length) {
       cashable.sort((a, b) =>
@@ -866,7 +948,7 @@ function botPlay(R, i) {
       const wouldThrow = opts.filter(c => !winners.includes(c))
         .sort((a, b) => ptsOf(a) - ptsOf(b))[0];
       const atStake = pot + (wouldThrow ? ptsOf(wouldThrow) : 0);
-      if (atStake > 0 || (last && cheap) || (cheap && !opponentVoid(R, i, R.lead))) {
+      if (atStake > 0 || (cheap && holdsUp(R, i, cheapest, last))) {
         return doPlay(R, i, cheapest.id);
       }
     }

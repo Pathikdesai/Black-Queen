@@ -226,6 +226,88 @@ function unitTests() {
   ok('and the queen is not called from outside the trump suit either',
     !d3.calls.includes('QS'), 'called ' + d3.calls.join(' + '));
 
+  /* Holding a called card is fine; holding every copy of it is not. There is no
+     third one to call for, so the call cannot bring anybody in — lay it and it
+     is announced dead, sit on it and it never comes down. Either way the bidder
+     has spent one of his two chances at a partner and plays a man short. The
+     black queen already had this guard. The ace and the king only had a weight
+     against them, which a strong suit could outvote, and did on a tenth of all
+     calls in traced play. */
+  const bothAces = [
+    C('A','H',id2++),C('A','H',id2++),C('K','H',id2++),C('9','H',id2++),
+    C('8','H',id2++),C('7','H',id2++),C('6','H',id2++),
+    C('A','D',id2++),C('9','D',id2++),C('8','D',id2++),
+    C('K','C',id2++),C('7','C',id2++),C('6','C',id2++),C('5','C',id2++)
+  ];
+  const d4 = declares(bothAces);
+  eq('a long strong suit is still trump', d4.trump, 'H');
+  ok('but the ace it holds both copies of is not called',
+    !d4.calls.includes('AH'), 'called ' + d4.calls.join(' + '));
+  ok('and the calls it does make can still find a partner',
+    d4.calls.every(k => bothAces.filter(c => c.r + c.s === k).length < 2),
+    'called ' + d4.calls.join(' + '));
+
+  /* Both kings as well as both aces: it has to keep walking down the suit. */
+  const bothTop = [
+    C('A','H',id2++),C('A','H',id2++),C('K','H',id2++),C('K','H',id2++),
+    C('9','H',id2++),C('8','H',id2++),C('7','H',id2++),C('6','H',id2++),
+    C('A','D',id2++),C('9','D',id2++),C('8','D',id2++),
+    C('K','C',id2++),C('7','C',id2++),C('6','C',id2++)
+  ];
+  const d5 = declares(bothTop);
+  ok('holding both aces and both kings, neither is called',
+    !d5.calls.includes('AH') && !d5.calls.includes('KH'),
+    'called ' + d5.calls.join(' + '));
+  ok('and it still names two cards somebody else could hold',
+    d5.calls.length === 2 && d5.calls.every(k =>
+      bothTop.filter(c => c.r + c.s === k).length < 2),
+    'called ' + d5.calls.join(' + '));
+
+  /* Naming the same card for both calls is legal, and with both copies outside
+     the hand each one can bring a partner in. A player's rule for when: do it
+     on a suit you are long in, six or more at six handed. The drawback is that
+     both copies may sit with one player, who then joins once and leaves you a
+     partner short — not a thing to risk a whole call on from a short suit. */
+  const sevenNoAce = [
+    C('K','H',id2++),C('J','H',id2++),C('10','H',id2++),C('9','H',id2++),
+    C('8','H',id2++),C('7','H',id2++),C('6','H',id2++),
+    C('A','D',id2++),C('9','D',id2++),C('8','D',id2++),
+    C('K','C',id2++),C('7','C',id2++),C('6','C',id2++),C('5','C',id2++)
+  ];
+  const d6 = declares(sevenNoAce);
+  eq('a seven card suit is trump', d6.trump, 'H');
+  ok('and with both copies of its ace outside, it is called for both slots',
+    d6.calls[0] === 'AH' && d6.calls[1] === 'AH', 'called ' + d6.calls.join(' + '));
+
+  const fiveNoAce = [
+    C('K','H',id2++),C('J','H',id2++),C('10','H',id2++),C('9','H',id2++),C('8','H',id2++),
+    C('A','D',id2++),C('9','D',id2++),C('8','D',id2++),C('7','D',id2++),C('6','D',id2++),
+    C('K','C',id2++),C('7','C',id2++),C('6','C',id2++),C('5','C',id2++)
+  ];
+  const d7 = declares(fiveNoAce);
+  ok('but a shorter suit spreads the calls instead of doubling up',
+    d7.calls[0] !== d7.calls[1], 'called ' + d7.calls.join(' + '));
+
+  /* Two aces of a suit do win two rounds of it, so they are worth more than
+     one. That is a reason to like the suit, not to make it trump: three cards
+     with two aces among them is still a three card holding, and naming it
+     leaves you two tricks and then nothing to cut with. */
+  const shortPair = [
+    C('A','D',id2++),C('A','D',id2++),C('5','D',id2++),
+    C('K','H',id2++),C('J','H',id2++),C('9','H',id2++),C('8','H',id2++),C('7','H',id2++),
+    C('9','C',id2++),C('8','C',id2++),C('7','C',id2++),C('6','C',id2++),C('5','C',id2++),
+    C('6','S',id2++)
+  ];
+  eq('three cards holding both aces is not a trump suit', declares(shortPair).trump, 'H');
+
+  const longPair = [
+    C('A','D',id2++),C('A','D',id2++),C('9','D',id2++),C('8','D',id2++),
+    C('7','D',id2++),C('6','D',id2++),
+    C('K','H',id2++),C('J','H',id2++),C('9','H',id2++),C('8','H',id2++),C('7','H',id2++),
+    C('9','C',id2++),C('8','C',id2++),C('6','S',id2++)
+  ];
+  eq('six cards holding both aces is', declares(longPair).trump, 'D');
+
   /* A partner already holds the trick. Cutting it takes the points off your own
      side and spends a trump to do it. */
   const cutter = [C('8','D',400), C('7','C',401), C('9','S',402)];
@@ -377,6 +459,91 @@ function unitTests() {
      { p: 1, card: C('5','D',1325) }, { p: 2, card: C('7','D',1326) }]);
   ok('and does not cut a fellow defender who is taking the trick',
     notCut !== '6S', 'played ' + notCut);
+
+  /* The black queen has become the top spade left, so the cashing rule would
+     happily lead her. Away from trump that is twenty points offered to anyone
+     holding a trump and no spades, and it is cut about two thirds of the time.
+     Where spades are trump she cannot be cut and the same rule lets her go. */
+  let id17 = 1600;
+  function leadsWith(trump, hand, seenCards) {
+    const seats = [[], [], [], [], [], []];
+    seats[3] = hand;
+    const R = table(seats);
+    R.phase = 'play'; R.trump = trump; R.bidder = 0; R.bidAmount = 140;
+    R.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'C' }]; R.calledDone = [true, true];
+    R.team = new Set([0, 4]); R.privateTeam = new Set([0, 4]);
+    R.trickNo = 7; R.leader = 3; R.lead = null; R.trick = [];
+    // both aces and both kings of spades already down, so she is top of the suit
+    ['AS', 'KS'].forEach(k => { R.seen[k] = 2; });
+    (seenCards || []).forEach(k => { R.seen[k] = 2; });
+    G.botPlay(R, 3);
+    const out = R.trick.length ? R.trick[0].card : null;
+    stop(R);
+    return out ? out.r + out.s : 'nothing';
+  }
+  const queenHand = () => [
+    C('Q','S',id17++), C('9','S',id17++), C('8','C',id17++), C('7','C',id17++)
+  ];
+  const offTrump = leadsWith('H', queenHand());
+  ok('the black queen is not led off trump while a trump can cut her',
+    offTrump !== 'QS', 'led ' + offTrump);
+  /* Where spades are trump the guard is not what governs her: she is a trump,
+     and the cashing rule only ever cashes side suits. What matters is that the
+     rule itself stops objecting, since nothing can cut a trump — so the only
+     question it asks there is whether a higher spade is still out. */
+  function queenSafe(trump, seenCards) {
+    const R = table([[], [], [], [C('Q','S',id17++), C('9','S',id17++)], [], []]);
+    R.phase = 'play'; R.trump = trump; R.bidder = 0; R.bidAmount = 140;
+    R.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'C' }]; R.calledDone = [true, true];
+    R.team = new Set([0, 4]); R.privateTeam = new Set([0, 4]);
+    R.trickNo = 7; R.leader = 3; R.lead = null; R.trick = [];
+    (seenCards || ['AS', 'KS']).forEach(k => { R.seen[k] = 2; });
+    const out = G.safeToRisk(R, 3, R.players[3].hand[0], false);
+    stop(R);
+    return out;
+  }
+  ok('off trump the rule refuses her even as the top spade left',
+    queenSafe('H') === false, '');
+  ok('with spades trump it does not, because no trump can be cut',
+    queenSafe('S') === true, '');
+  ok('but it still refuses while a higher spade is unaccounted for',
+    queenSafe('S', ['AS']) === false, '');
+
+  /* Winning a trick with nothing in it is worth nothing, so the only thing it
+     can do is cost. Spending the ten to sit in front for one seat, when the
+     jack of the suit is plainly still unaccounted for, loses the trick and puts
+     five points into it on the way out. The ten only goes when it will actually
+     hold up. */
+  function emptyTrick(hand, seenCards) {
+    const seats = [[], [], [], [], [], []];
+    seats[3] = hand;
+    const R = table(seats);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 140;
+    R.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'C' }]; R.calledDone = [true, true];
+    // seat 4 is on the bidding side, so somebody behind our player is an opponent
+    R.team = new Set([0, 4]); R.privateTeam = new Set([0, 4]);
+    R.trickNo = 6; R.leader = 0; R.lead = 'D';
+    R.trick = [
+      { p: 0, card: C('6','D',1500) },
+      { p: 1, card: C('7','D',1501) },
+      { p: 2, card: C('8','D',1502) }
+    ];
+    R.trick.forEach(t => { R.seen[t.card.r + t.card.s] = 1; });
+    (seenCards || []).forEach(k => { R.seen[k] = 2; });
+    G.botPlay(R, 3);
+    const out = R.trick.length > 3 ? R.trick[3].card : null;
+    stop(R);
+    return out ? out.r + out.s : 'nothing';
+  }
+  let id16 = 1510;
+  const tenHand = () => [
+    C('10','D',id16++), C('4','D',id16++), C('9','C',id16++), C('8','H',id16++)
+  ];
+  const wasted = emptyTrick(tenHand());
+  ok('a ten is not spent taking an empty trick while the jack is still out',
+    wasted !== '10D', 'played ' + wasted);
+  const worthIt = emptyTrick(tenHand(), ['AD', 'KD', 'QD', 'JD']);
+  eq('but it does take it once nothing above it is left', worthIt, '10D');
 
   /* Holding the ace and the queen of a long suit. The queen takes the trick and
      costs nothing, so the ace is not spent on it — but the ace must not then sit
