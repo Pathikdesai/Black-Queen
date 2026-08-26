@@ -325,7 +325,9 @@ function unitTests() {
     R.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'C' }];
     R.calledDone = (opts && opts.calledDone) || [true, true];
     R.team = new Set([0, 1]); R.privateTeam = new Set([0, 1]);
-    R.trickNo = 9; R.leader = trick[0].p; R.lead = trick[0].card.s;
+    R.trickNo = 9;
+    R.leader = trick.length ? trick[0].p : 3;
+    R.lead = trick.length ? trick[0].card.s : null;
     R.trick = trick.map(t => ({ p: t.p, card: t.card }));
     R.trick.forEach(t => { R.seen[t.card.r + t.card.s] = (R.seen[t.card.r + t.card.s] || 0) + 1; });
     G.botPlay(R, 3);
@@ -375,6 +377,46 @@ function unitTests() {
      { p: 1, card: C('5','D',1325) }, { p: 2, card: C('7','D',1326) }]);
   ok('and does not cut a fellow defender who is taking the trick',
     notCut !== '6S', 'played ' + notCut);
+
+  /* Holding the ace and the queen of a long suit. The queen takes the trick and
+     costs nothing, so the ace is not spent on it — but the ace must not then sit
+     in the hand either. It only wins while people can still follow, and a long
+     suit in one hand is a short suit in everybody else's, so that is the suit
+     that runs dry soonest. Cash it at the next lead. */
+  let id15 = 1400;
+  const longSuit = () => [
+    C('A','D',id15++), C('Q','D',id15++), C('9','D',id15++),
+    C('8','D',id15++), C('7','D',id15++), C('6','D',id15++),
+    C('8','S',id15++), C('4','C',id15++)
+  ];
+  const cheapWin = defenders(longSuit(), [
+    { p: 0, card: C('5','D', id15++) },      // the bidder leads low
+    { p: 1, card: C('J','D', id15++) },      // his partner, winning it
+    { p: 2, card: C('10','D', id15++) }      // a fellow defender
+  ]);
+  eq('a trick is won with the cheapest card that takes it, not the ace', cheapWin, 'QD');
+
+  const cashIt = defenders(longSuit(), []);
+  eq('and the ace is cashed at the next lead, before it can be cut', cashIt, 'AD');
+
+  /* Unless somebody has already shown out of the suit: then it is too late and
+     the ace is worth more in the hand than under a trump. */
+  const tooLate = (() => {
+    const seats = [[], [], [], [], [], []];
+    seats[3] = longSuit();
+    const R = table(seats);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 140;
+    R.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'C' }]; R.calledDone = [true, true];
+    R.team = new Set([0, 1]); R.privateTeam = new Set([0, 1]);
+    R.trickNo = 9; R.leader = 3; R.lead = null; R.trick = [];
+    R.voids[1].add('D');
+    G.botPlay(R, 3);
+    const out = R.trick.length ? R.trick[0].card : null;
+    stop(R);
+    return out ? out.r + out.s : 'nothing';
+  })();
+  ok('but not into a suit an opponent has already shown out of',
+    tooLate !== 'AD', 'played ' + tooLate);
 
   /* From a real hand, and an expensive one. Bidder, spades trump, called A♠ and
      Q♠. The bidder leads 10♠, an opponent covers with the king, and the player

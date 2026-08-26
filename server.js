@@ -697,28 +697,34 @@ function botPlay(R, i) {
   const bySuit = s => hand.filter(c => c.s === s).length;
 
   if (R.trick.length === 0) {
-    /* Leading a singleton side suit. This is the bidder's opening move at a real
-       table and it does two jobs at once: it empties the suit, so every later
-       round of it can be cut, and when the singleton happens to be an ace it
-       banks the ten points at the one moment nobody can be void yet. Held back,
-       that same ace gets cut around trick six. */
-    const singles = opts.filter(c => c.s !== R.trump && bySuit(c.s) === 1);
-    if (singles.length) {
-      const ace = singles.find(c => RV[c.r] >= topOut(R, i, c.s));
-      if (ace) return doPlay(R, i, ace.id);
-      const cheapSingle = singles.filter(c => ptsOf(c) === 0)
-        .sort((a, b) => RV[a.r] - RV[b.r])[0];
-      if (cheapSingle && trumpsIn(R, i) > 0) return doPlay(R, i, cheapSingle.id);
-    }
-    /* A card nobody can beat is worth cashing, biggest points first, but only in
-       a suit no opponent is known to be out of: a void opponent holding a trump
-       would simply cut it. */
+    /* A card nobody can beat is worth cashing, and worth cashing now. It only
+       wins while people can still follow: the moment somebody runs dry it is
+       cut, and an ace cut is ten points handed over on top of the trick. So the
+       one thing that must not happen is sitting on it while the suit empties.
+       Not into a suit an opponent is already known to be out of, though —
+       there the damage is done and the ace stays in hand.
+
+       Which one first: the points, and then the suit I hold most of. Length in
+       my own hand means shortage in everybody else's, so a long suit is the one
+       that runs dry first and the top card in it is the one most likely to be
+       cut if it waits. This is the opposite of the instinct to save the big
+       card, and it is right for the same reason the instinct is wrong — the ace
+       is not getting more valuable while it sits there, only easier to trump. */
     const cashable = opts.filter(c => c.s !== R.trump
       && RV[c.r] >= topOut(R, i, c.s)
       && !(opponentVoid(R, i, c.s) && trumpsOut(R, i) > 0));
     if (cashable.length) {
-      cashable.sort((a, b) => ptsOf(b) - ptsOf(a) || RV[b.r] - RV[a.r]);
+      cashable.sort((a, b) =>
+        ptsOf(b) - ptsOf(a) || bySuit(b.s) - bySuit(a.s) || RV[b.r] - RV[a.r]);
       return doPlay(R, i, cashable[0].id);
+    }
+    /* Nothing to cash. Lead a low singleton side suit instead: it empties the
+       suit so every later round of it can be cut. */
+    const singles = opts.filter(c => c.s !== R.trump && bySuit(c.s) === 1);
+    if (singles.length) {
+      const cheapSingle = singles.filter(c => ptsOf(c) === 0)
+        .sort((a, b) => RV[a.r] - RV[b.r])[0];
+      if (cheapSingle && trumpsIn(R, i) > 0) return doPlay(R, i, cheapSingle.id);
     }
     /* Still nobody claimed as a partner: lead the suit of a called card to pull
        them out. The sooner a partner shows, the sooner both of them know which
