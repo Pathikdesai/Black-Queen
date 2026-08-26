@@ -279,6 +279,33 @@ function unitTests() {
   ok('an ace that cannot beat the ace already down is not thrown after it',
     cannotWin.played !== 'AH', 'played ' + cannotWin.played);
 
+  /* From a real hand. A defender holds the ace of the led suit and the five of
+     it. The trick is empty of points so far, so the bot decided the trick was
+     not worth taking — and then threw the five straight into it. Declining a
+     trick and feeding it in the same breath is incoherent: the points you would
+     have to throw in are on the table too, they have just not been played yet. */
+  const decliner = [
+    C('A','D',1200), C('5','D',1201),
+    C('9','C',1202), C('8','C',1203), C('7','H',1204)
+  ];
+  const R13 = table([[], [], decliner, [], [], []]);
+  R13.phase = 'play'; R13.trump = 'S'; R13.bidder = 0; R13.bidAmount = 140;
+  R13.called = [{ r: 'A', s: 'S' }, { r: 'A', s: 'S' }];
+  R13.calledDone = [true, true];              // both down, so the sides are public
+  R13.team = new Set([0, 4]); R13.privateTeam = new Set([0, 4]);
+  R13.trickNo = 8; R13.leader = 5; R13.lead = 'D';
+  R13.trick = [
+    { p: 5, card: C('J','D',1205) },          // an opponent of the bidding side leads
+    { p: 0, card: C('8','D',1206) },          // the bidder follows
+    { p: 1, card: C('J','D',1207) }
+  ];
+  R13.trick.forEach(t => { R13.seen[t.card.r + t.card.s] = (R13.seen[t.card.r + t.card.s] || 0) + 1; });
+  G.botPlay(R13, 2);
+  const chose = R13.trick.length > 3 ? R13.trick[3].card : null;
+  ok('a trick with no points yet is still taken rather than fed five',
+    chose && chose.r === 'A', 'played ' + (chose ? chose.r + chose.s : 'nothing'));
+  stop(R13);
+
   /* From a real hand, and an expensive one. Bidder, spades trump, called A♠ and
      Q♠. The bidder leads 10♠, an opponent covers with the king, and the player
      holding the called black queen drops her straight under it to come in.

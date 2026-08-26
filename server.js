@@ -776,7 +776,16 @@ function botPlay(R, i) {
       const cheapest = usable.slice().sort((a, b) =>
         (a.s === R.trump) - (b.s === R.trump) || RV[a.r] - RV[b.r])[0];
       const cheap = RV[cheapest.r] <= T.cheapWinner;
-      if (pot > 0 || (last && cheap) || (cheap && !opponentVoid(R, i, R.lead))) {
+      /* What the trick is actually worth is not just what is lying in it. If
+         declining means throwing a ten in myself, those points are on the table
+         too — they simply have not been played yet. Turning down a trick and
+         then feeding it five is the worst of both, and it is what happened at a
+         real table: an empty trick refused, and the five of the suit dropped
+         straight into it a moment later. */
+      const wouldThrow = opts.filter(c => !winners.includes(c))
+        .sort((a, b) => ptsOf(a) - ptsOf(b))[0];
+      const atStake = pot + (wouldThrow ? ptsOf(wouldThrow) : 0);
+      if (atStake > 0 || (last && cheap) || (cheap && !opponentVoid(R, i, R.lead))) {
         return doPlay(R, i, cheapest.id);
       }
     }
