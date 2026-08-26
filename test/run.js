@@ -415,6 +415,42 @@ function unitTests() {
   ok('and does not cut a fellow defender who is taking the trick',
     notCut !== '6S', 'played ' + notCut);
 
+  /* Winning a trick with nothing in it is worth nothing, so the only thing it
+     can do is cost. Spending the ten to sit in front for one seat, when the
+     jack of the suit is plainly still unaccounted for, loses the trick and puts
+     five points into it on the way out. The ten only goes when it will actually
+     hold up. */
+  function emptyTrick(hand, seenCards) {
+    const seats = [[], [], [], [], [], []];
+    seats[3] = hand;
+    const R = table(seats);
+    R.phase = 'play'; R.trump = 'S'; R.bidder = 0; R.bidAmount = 140;
+    R.called = [{ r: 'A', s: 'C' }, { r: 'K', s: 'C' }]; R.calledDone = [true, true];
+    // seat 4 is on the bidding side, so somebody behind our player is an opponent
+    R.team = new Set([0, 4]); R.privateTeam = new Set([0, 4]);
+    R.trickNo = 6; R.leader = 0; R.lead = 'D';
+    R.trick = [
+      { p: 0, card: C('6','D',1500) },
+      { p: 1, card: C('7','D',1501) },
+      { p: 2, card: C('8','D',1502) }
+    ];
+    R.trick.forEach(t => { R.seen[t.card.r + t.card.s] = 1; });
+    (seenCards || []).forEach(k => { R.seen[k] = 2; });
+    G.botPlay(R, 3);
+    const out = R.trick.length > 3 ? R.trick[3].card : null;
+    stop(R);
+    return out ? out.r + out.s : 'nothing';
+  }
+  let id16 = 1510;
+  const tenHand = () => [
+    C('10','D',id16++), C('4','D',id16++), C('9','C',id16++), C('8','H',id16++)
+  ];
+  const wasted = emptyTrick(tenHand());
+  ok('a ten is not spent taking an empty trick while the jack is still out',
+    wasted !== '10D', 'played ' + wasted);
+  const worthIt = emptyTrick(tenHand(), ['AD', 'KD', 'QD', 'JD']);
+  eq('but it does take it once nothing above it is left', worthIt, '10D');
+
   /* Holding the ace and the queen of a long suit. The queen takes the trick and
      costs nothing, so the ace is not spent on it — but the ace must not then sit
      in the hand either. It only wins while people can still follow, and a long

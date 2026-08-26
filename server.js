@@ -676,6 +676,31 @@ function safeToRisk(R, i, card, last) {
   const cuttable = R.trump !== 'S' && trumpsOut(R, i) > 0 && R.lead !== R.trump;
   return !beatable && !cuttable;
 }
+/* Put this card in front now and does it stay in front? Only certainties count:
+   a higher card of the suit that is visibly unaccounted for, or a player behind
+   who has already shown out and still has a trump. It is not a guess at hidden
+   hands.
+
+   Worth asking before taking a trick that carries nothing. Winning an empty
+   trick is worth nothing by definition, so the only thing it can do is cost:
+   spend the ten, watch the jack that was plainly still out come down on top of
+   it, and five points go across with the trick. Taking it for the sake of being
+   in front for one seat is not a reason. */
+function holdsUp(R, i, card, last) {
+  if (last) return true;
+  const after = R.n - R.trick.length - 1;
+  let strangers = 0, knownCutter = false;
+  for (let k = 1; k <= after; k++) {
+    const j = (i + k) % R.n;
+    if (knownMate(R, i, j)) continue;
+    strangers++;
+    if (card.s !== R.trump && R.voids[j] && R.voids[j].has(R.lead)) knownCutter = true;
+  }
+  if (strangers === 0) return true;
+  if (topOut(R, i, card.s) > RV[card.r]) return false;
+  if (knownCutter && trumpsOut(R, i) > 0) return false;
+  return true;
+}
 function trumpsOut(R, i) {
   let n = 0;
   for (const r of RANKS) n += stillOut(R, i, R.trump, r);
@@ -888,7 +913,7 @@ function botPlay(R, i) {
       const wouldThrow = opts.filter(c => !winners.includes(c))
         .sort((a, b) => ptsOf(a) - ptsOf(b))[0];
       const atStake = pot + (wouldThrow ? ptsOf(wouldThrow) : 0);
-      if (atStake > 0 || (last && cheap) || (cheap && !opponentVoid(R, i, R.lead))) {
+      if (atStake > 0 || (cheap && holdsUp(R, i, cheapest, last))) {
         return doPlay(R, i, cheapest.id);
       }
     }
