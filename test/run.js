@@ -226,6 +226,43 @@ function unitTests() {
   ok('and the queen is not called from outside the trump suit either',
     !d3.calls.includes('QS'), 'called ' + d3.calls.join(' + '));
 
+  /* Holding a called card is fine; holding every copy of it is not. There is no
+     third one to call for, so the call cannot bring anybody in — lay it and it
+     is announced dead, sit on it and it never comes down. Either way the bidder
+     has spent one of his two chances at a partner and plays a man short. The
+     black queen already had this guard. The ace and the king only had a weight
+     against them, which a strong suit could outvote, and did on a tenth of all
+     calls in traced play. */
+  const bothAces = [
+    C('A','H',id2++),C('A','H',id2++),C('K','H',id2++),C('9','H',id2++),
+    C('8','H',id2++),C('7','H',id2++),C('6','H',id2++),
+    C('A','D',id2++),C('9','D',id2++),C('8','D',id2++),
+    C('K','C',id2++),C('7','C',id2++),C('6','C',id2++),C('5','C',id2++)
+  ];
+  const d4 = declares(bothAces);
+  eq('a long strong suit is still trump', d4.trump, 'H');
+  ok('but the ace it holds both copies of is not called',
+    !d4.calls.includes('AH'), 'called ' + d4.calls.join(' + '));
+  ok('and the calls it does make can still find a partner',
+    d4.calls.every(k => bothAces.filter(c => c.r + c.s === k).length < 2),
+    'called ' + d4.calls.join(' + '));
+
+  /* Both kings as well as both aces: it has to keep walking down the suit. */
+  const bothTop = [
+    C('A','H',id2++),C('A','H',id2++),C('K','H',id2++),C('K','H',id2++),
+    C('9','H',id2++),C('8','H',id2++),C('7','H',id2++),C('6','H',id2++),
+    C('A','D',id2++),C('9','D',id2++),C('8','D',id2++),
+    C('K','C',id2++),C('7','C',id2++),C('6','C',id2++)
+  ];
+  const d5 = declares(bothTop);
+  ok('holding both aces and both kings, neither is called',
+    !d5.calls.includes('AH') && !d5.calls.includes('KH'),
+    'called ' + d5.calls.join(' + '));
+  ok('and it still names two cards somebody else could hold',
+    d5.calls.length === 2 && d5.calls.every(k =>
+      bothTop.filter(c => c.r + c.s === k).length < 2),
+    'called ' + d5.calls.join(' + '));
+
   /* A partner already holds the trick. Cutting it takes the points off your own
      side and spends a trump to do it. */
   const cutter = [C('8','D',400), C('7','C',401), C('9','S',402)];

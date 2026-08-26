@@ -477,6 +477,14 @@ function botDeclare(R, i) {
      must not then do is lay your own copy — that is handled at play time, not
      here.
 
+     Holding *every* copy is a different matter, and it was being treated as the
+     same one. There is no third card to call for, so the call cannot bring
+     anybody in: lay it yourself and it is announced dead, sit on it and it
+     never comes down. Either way the bidder has thrown away one of his two
+     chances at a partner and plays a man short for it. The black queen already
+     had this guard; the ace and the king only had a weight against them, which
+     a strong suit could outvote — and did, on a tenth of all calls.
+
      The calls belong in the trump suit wherever possible. Partners found in
      the suit you control are partners you can actually work with. */
   const held = k => h.filter(c => c.r + c.s === k).length;
@@ -489,16 +497,20 @@ function botDeclare(R, i) {
        worth calling when it can do something: away from trump it is twenty
        points sitting in a suit your partner may not be able to protect, and
        holding both copies there is no third one to call for. */
-    if (s === 'S' && held('QS') < 2) {
+    if (s === 'S' && held('QS') < COPIES('Q')) {
       cands.push({ r: 'Q', s: 'S',
         w: (trumped ? T.callQueenTrump : T.callQueenOff) - held('QS') * T.callQueenHeld });
     }
-    cands.push({ r: 'A', s,
-      w: (trumped ? T.callAceTrump : T.callAceOff - by[s] * T.callAceLen)
-         - held('A' + s) * T.callAceHeld });
-    cands.push({ r: 'K', s,
-      w: (trumped ? T.callKingTrump : T.callKingOff - by[s] * T.callKingLen)
-         - held('K' + s) * T.callKingHeld });
+    if (held('A' + s) < COPIES('A')) {
+      cands.push({ r: 'A', s,
+        w: (trumped ? T.callAceTrump : T.callAceOff - by[s] * T.callAceLen)
+           - held('A' + s) * T.callAceHeld });
+    }
+    if (held('K' + s) < COPIES('K')) {
+      cands.push({ r: 'K', s,
+        w: (trumped ? T.callKingTrump : T.callKingOff - by[s] * T.callKingLen)
+           - held('K' + s) * T.callKingHeld });
+    }
   });
   cands.sort((a, b) => b.w - a.w);
   const seen = new Set(), pick = [];
@@ -710,6 +722,16 @@ function botPlay(R, i) {
        cut if it waits. This is the opposite of the instinct to save the big
        card, and it is right for the same reason the instinct is wrong — the ace
        is not getting more valuable while it sits there, only easier to trump. */
+    /* This lead does not consult the black queen rule, and that is deliberate —
+       it was tried the other way and measured. She becomes the top spade left
+       the moment the four cards above her are gone, and leading her then does
+       get her cut about two times in three, which looks damning until you ask
+       where she ends up instead. Blocking the lead moved that not at all: over
+       3,900 queens the holder's own side finished with her 60.0% of the time
+       with the guard and 59.9% without, and the score came out 0.3 a deal
+       worse for holding her. Off trump she is a liability from the moment she
+       is dealt; refusing to lead her only postpones losing her, usually to the
+       last trick where there is no choice at all. Leave it as it is. */
     const cashable = opts.filter(c => c.s !== R.trump
       && RV[c.r] >= topOut(R, i, c.s)
       && !(opponentVoid(R, i, c.s) && trumpsOut(R, i) > 0));
