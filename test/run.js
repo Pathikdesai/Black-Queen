@@ -981,12 +981,16 @@ function unitTests() {
 /* ===================== part two: a real server ===================== */
 function client() {
   const ws = new WebSocket(URL);
-  const c = { ws, V: null, seat: null, code: null, token: null, errs: [], states: 0, onState: null };
+  const c = { ws, V: null, seat: null, code: null, token: null, errs: [], states: 0, onState: null,
+              rtc: [], talk: [], ice: null };
   ws.on('message', raw => {
     const m = JSON.parse(raw);
     if (m.t === 'seated') { c.seat = m.seat; c.code = m.code; c.token = m.token; }
     else if (m.t === 'state') { c.V = m.v; c.states++; if (c.onState) c.onState(m.v); }
     else if (m.t === 'err') c.errs.push(m.msg);
+    else if (m.t === 'rtc') c.rtc.push(m);
+    else if (m.t === 'talk') c.talk.push(m);
+    else if (m.t === 'ice') c.ice = m.servers;
   });
   c.send = o => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
   c.open = () => new Promise(r => ws.readyState === 1 ? r() : ws.on('open', r));
@@ -1179,6 +1183,66 @@ async function lastTrickAndHost() {
 }
 
 /* ===================== driver ===================== */
+/* The voices never come through the server, so what there is to test here is
+   the introduction service: does a message reach the seat it was addressed to,
+   carrying who it came from, and does it refuse everything else. */
+async function voiceRelay() {
+  console.log('\npassing introductions between phones');
+  const a = client(), b = client(), out = client();
+  await a.open(); await b.open(); await out.open();
+
+  ok('a phone is told where to look for a route',
+    Array.isArray(a.ice) && a.ice.length > 0, JSON.stringify(a.ice));
+
+  a.send({ t: 'create', name: 'Ankush' });
+  await until(() => a.code, 3000, 'a table');
+  b.send({ t: 'join', code: a.code, name: 'Pathik' });
+  await until(() => b.seat === 1, 3000, 'a second seat');
+  out.send({ t: 'create', name: 'Stranger' });
+  await until(() => out.code, 3000, 'another table');
+
+  // an offer addressed to seat 1 arrives at seat 1, stamped with the sender
+  a.send({ t: 'rtc', to: 1, d: { sdp: { type: 'offer', sdp: 'v=0' } } });
+  await until(() => b.rtc.length > 0, 3000, 'the offer to arrive');
+  eq('an offer reaches the seat it was addressed to', b.rtc[0].from, 0);
+  eq('and arrives unchanged', b.rtc[0].d.sdp.type, 'offer');
+
+  // everything else is refused in silence
+  const beforeOut = out.rtc.length;
+  a.send({ t: 'rtc', to: 0, d: { x: 1 } });                    // to itself
+  a.send({ t: 'rtc', to: 99, d: { x: 1 } });                   // to nobody
+  a.send({ t: 'rtc', to: 1, d: { pad: 'z'.repeat(40000) } });  // too big to be signalling
+  out.send({ t: 'rtc', to: 1, d: { x: 1 } });                  // from another table
+  await sleep(400);
+  eq('a message to a seat at another table goes nowhere', out.rtc.length, beforeOut);
+  eq('and nothing else got through either', b.rtc.length, 1);
+
+  // switching voice on is table news; talking is not
+  const states = b.states;
+  a.send({ t: 'voice', on: true });
+  await until(() => b.V && b.V.seats[0].voice, 3000, 'the table to hear about the mic');
+  ok('switching voice on is announced to the table', b.states > states, '');
+
+  const afterVoice = b.states;
+  a.send({ t: 'talk', on: true });
+  await until(() => b.talk.length > 0, 3000, 'the talking flag');
+  eq('holding the button names the seat', b.talk[0].i, 0);
+  eq('and says it is on', b.talk[0].on, true);
+  eq('without redealing the whole table for it', b.states, afterVoice);
+
+  a.send({ t: 'talk', on: false });
+  await until(() => b.talk.length > 1, 3000, 'the release');
+  eq('letting go is passed on too', b.talk[1].on, false);
+
+  /* A phone that leaves has no microphone at the table any more, so nobody
+     should keep offering it a connection. */
+  await a.close();
+  await until(() => b.V && !b.V.seats[0].voice, 4000, 'the mic to be forgotten');
+  ok('a phone that goes away stops being someone to call', true, '');
+
+  await b.close(); await out.close();
+}
+
 (async () => {
   unitTests();
 
@@ -1205,6 +1269,7 @@ async function lastTrickAndHost() {
     await pingPong();
     await reconnect();
     await lastTrickAndHost();
+    await voiceRelay();
   } catch (e) {
     failed++;
     fails.push('threw: ' + e.message);

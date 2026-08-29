@@ -1071,7 +1071,8 @@ function viewFor(R, me) {
       isHost: R.players[me] && R.players[me].token === R.hostToken,
       hostSeat: R.players.findIndex(p => p.token === R.hostToken),
       chat: R.chat.slice(-40),
-      seats: R.players.map(p => ({ name: p.name, bot: !!p.bot, connected: p.connected }))
+      seats: R.players.map(p => ({ name: p.name, bot: !!p.bot, connected: p.connected,
+        voice: !!p.voice }))
     };
   }
   const p = R.players[me];
@@ -1095,7 +1096,7 @@ function viewFor(R, me) {
     lastTrick: R.lastTrick, result: R.result, log: R.log.slice(0, 40),
     seats: R.players.map((q, i) => ({
       name: q.name, score: q.score, cards: q.hand.length, bot: !!q.bot,
-      connected: q.connected, won: showPts ? q.won : null
+      connected: q.connected, won: showPts ? q.won : null, voice: !!q.voice
     })),
     hand: p ? sortHand(p.hand.slice(), R.trump) : [],
     chat: R.chat.slice(-40),
@@ -1171,6 +1172,7 @@ const wss = new WebSocketServer({ server });
 
 wss.on('connection', ws => {
   ws.isAlive = true;
+  send(ws, { t: 'ice', servers: iceServers() });
   ws.on('pong', () => { ws.isAlive = true; });
   ws.on('message', raw => {
     let m; try { m = JSON.parse(raw); } catch (e) { return; }
@@ -1181,6 +1183,9 @@ wss.on('connection', ws => {
     const p = R.players.find(q => q.ws === ws);
     if (!p) return;
     p.connected = false; p.ws = null;
+    // a phone that has gone away is not talking, and nobody should keep offering
+    // it a voice connection until it comes back and says so again
+    p.voice = false; p.talking = false;
     if (R.phase === 'lobby') {
       /* Do NOT drop the seat straight away. A host waiting for friends to join
          will have their phone lock the screen or lose signal, and instantly
@@ -1193,11 +1198,107 @@ wss.on('connection', ws => {
   });
 });
 
+/* ===================== TALKING TO EACH OTHER =====================
+   The voices do not come through here. Two phones that want to talk make their
+   own connection and the sound goes straight between them; all this does is
+   carry the introductions, which is a handful of small messages per pair and
+   then nothing. That is the whole reason it can be free: no audio ever crosses
+   this server, so a hundred people talking costs it exactly as much as none.
+
+   What passes through is opaque on purpose. A browser hands over a blob
+   describing how to reach it, and the only sensible thing to do with that blob
+   is hand it to the other browser unread. So the checks here are not about what
+   is inside it: only that the sender has a seat, that the seat it names is at
+   the same table, and that the blob is not large enough to be a nuisance. */
+/* Where a phone should look to find a route to another phone.
+
+   The STUN servers are free and need no account: all a phone asks them is
+   "what does my address look like from out there", which is enough whenever
+   both ends can be reached directly. That covers most home wifi.
+
+   What it does not always cover is mobile data. Carriers put phones behind
+   shared addresses, and two phones on mobile networks sometimes cannot reach
+   each other at all without something in the middle to bounce the sound off.
+   That something is a TURN server, and TURN carries the audio, so nobody
+   gives it away for nothing. There is none configured here by default and the
+   app is honest about it: a pair that cannot connect is shown as failed rather
+   than left as silence. Set TURN_URL, TURN_USER and TURN_PASS to add one. */
+function iceServers() {
+  const list = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+  if (process.env.TURN_URL) {
+    list.push({
+      urls: process.env.TURN_URL.split(',').map(s => s.trim()).filter(Boolean),
+      username: process.env.TURN_USER || '',
+      credential: process.env.TURN_PASS || ''
+    });
+  }
+  return list;
+}
+const RTC_MAX = 16 * 1024;      // an offer is well under this; anything bigger is not signalling
+const RTC_BURST = 300;          // candidates arrive in a flurry while a pair connects
+const RTC_WINDOW = 10000;
+
+function seatOf(ws) {
+  const R = ws.room;
+  if (!R) return null;
+  const i = R.players.findIndex(q => q.ws === ws);
+  return i < 0 ? null : i;
+}
+function rtcAllowed(ws) {
+  const now = Date.now();
+  if (!ws.rtcAt || now - ws.rtcAt > RTC_WINDOW) { ws.rtcAt = now; ws.rtcN = 0; }
+  return ++ws.rtcN <= RTC_BURST;
+}
+function relayRtc(ws, m) {
+  const from = seatOf(ws);
+  if (from === null) return;
+  const R = ws.room;
+  const to = m.to;
+  if (!Number.isInteger(to) || to < 0 || to >= R.players.length || to === from) return;
+  const target = R.players[to];
+  if (!target || target.bot || !target.ws) return;
+  const blob = typeof m.d === 'string' ? m.d : JSON.stringify(m.d || null);
+  if (blob.length > RTC_MAX) return;
+  if (!rtcAllowed(ws)) return;
+  send(target.ws, { t: 'rtc', from, d: m.d });
+}
+/* Whether a seat has its microphone switched on at all. This one is worth a
+   full state push: it changes rarely, and everyone needs to know so their own
+   phone can offer that seat a connection. */
+function setVoice(ws, m) {
+  const i = seatOf(ws);
+  if (i === null) return;
+  const R = ws.room;
+  const on = !!m.on;
+  if (R.players[i].voice === on) return;
+  R.players[i].voice = on;
+  if (!on) R.players[i].talking = false;
+  push(R);
+}
+/* Whether a seat is holding the button down right now. Deliberately NOT a state
+   push: this flips several times a minute per player, and redealing the whole
+   table to six phones every time somebody says "your turn" would be absurd.
+   It goes out as its own small message and moves one dot on the screen. */
+function setTalking(ws, m) {
+  const i = seatOf(ws);
+  if (i === null) return;
+  const R = ws.room;
+  const p = R.players[i];
+  if (!p.voice) return;
+  const on = !!m.on;
+  if (p.talking === on) return;
+  p.talking = on;
+  R.players.forEach(q => { if (q.ws && q.ws !== ws) send(q.ws, { t: 'talk', i, on }); });
+}
+
 function handle(ws, m) {
   /* Answered before anything else and without touching the room. A phone coming
      back from another app uses this to find out whether its socket is still
      really there, so it has to work whether or not the sender is seated. */
   if (m.t === 'ping') return send(ws, { t: 'pong' });
+  if (m.t === 'rtc') return relayRtc(ws, m);
+  if (m.t === 'voice') return setVoice(ws, m);
+  if (m.t === 'talk') return setTalking(ws, m);
   if (m.t === 'create') {
     /* A socket gets one table. Without this, repeated create messages left the
        earlier rooms holding a player still marked connected, which the reaper
@@ -1480,5 +1581,6 @@ module.exports = {
   TUNE, applyTuning,
   // the brain, so the strategy rules can be tested rather than only described
   botCeiling, botDeclare, botPlay, botBid, safeToRisk, knownMate, topOut,
-  suitStrength, tuneOf
+  suitStrength, tuneOf,
+  iceServers
 };
