@@ -10,7 +10,7 @@ The cards live on the server. Each phone only ever receives its own hand, so nob
 
 | File | What it does |
 |---|---|
-| `server.js` | The referee. Deck, bidding, trick logic, scoring, bots, WebSocket rooms. |
+| `server.js` | The referee. Deck, bidding, trick logic, scoring, bots, WebSocket rooms, and the introductions that let phones talk to each other. |
 | `public/index.html` | Everything players see. One file, no build step. |
 | `public/manifest.webmanifest`, `public/icons/` | Lets phones add the game to the home screen. |
 | `test/run.js` | The test suite. `npm test`. |
@@ -78,6 +78,26 @@ Tap the speech bubble in the top bar to open chat. There are tap-to-send phrases
 Sound is synthesised in the browser, so there are no audio files to host and nothing to download. The speaker icon mutes it, and the choice is remembered on that phone. Cues fire for: your turn, a card landing, a trump cut, a queen of spades appearing, winning a trick, a trick worth 20 or more, a partner revealing themselves, a contract being taken, and the contract being made or broken.
 
 Phones need one tap anywhere before audio can start. That is a browser rule, not a bug, and the first tap on the name screen handles it.
+
+## Talking to each other
+
+Tap the microphone in the top bar to switch voice on. A **Hold to talk** button appears just above your cards: press it to be heard, let go and your microphone is off again. On a laptop the space bar does the same, unless you are typing a message. Seats with voice on show a small microphone, and the seat of whoever is talking is outlined while they hold the button.
+
+**No sound goes through the server.** Each pair of phones opens its own connection and the voice travels straight down it, so the table's server carries only a handful of small introduction messages per pair and then nothing at all. That is why this costs nothing to run however many tables are going, and it is also why the hosting does not need upgrading for it. Six players means every phone holds five of these connections, which sounds like a lot and is not: speech is a very small amount of data.
+
+Push to talk rather than an open microphone, deliberately. Six live mics in a card game is a room full of television, breathing and somebody's kitchen, and it flattens the battery. The microphone is opened once, when you switch voice on, and simply muted between presses — asking for it again on every press would put a permission prompt in the middle of the game.
+
+**The one thing that can fail.** Two phones find each other using free public STUN servers, which need no account and are what the app uses out of the box. That covers home wifi and most mobile connections. What it does not always cover is two phones both on mobile data: carriers put phones behind shared addresses, and sometimes there is no direct route between them at all. Fixing that needs a TURN server, which relays the audio and therefore costs somebody money, so there is none configured here.
+
+The app is honest about it rather than leaving you with silence. Press and hold the microphone button for a panel showing every other player and whether you are connected to them, so a pair that cannot reach each other shows as *could not connect* by name. Joining wifi usually fixes it. If you want to fix it properly, set three environment variables on the server and every phone will pick them up automatically:
+
+```
+TURN_URL=turn:your-server:3478
+TURN_USER=someone
+TURN_PASS=something
+```
+
+`TURN_URL` accepts a comma-separated list. Anything from a few dollars a month of `coturn` on a small VPS to a hosted provider will do; the app does not care which.
 
 ## At the table
 

@@ -168,7 +168,23 @@ border-radius:2px;background:var(--brass)}
 .card .val{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:var(--cval);font-weight:700;
 color:rgba(23,32,47,.32)}
 .card.qs .val{color:var(--brass-dim)}
-.handwrap{border-top:1px solid var(--line);background:rgba(0,0,0,.22);padding:10px 0 12px}
+.handwrap{border-top:1px solid var(--line);background:rgba(0,0,0,.22);padding:10px 0 12px;position:relative}
+/* Sits just above the cards rather than floating over them, so it cannot cover
+   the one card you are reaching for. touch-action none stops the press being
+   read as the start of a scroll, which on a phone would swallow it. */
+.ptt{position:absolute;right:12px;top:-46px;z-index:5;touch-action:none;user-select:none;
+  -webkit-user-select:none;-webkit-touch-callout:none;
+  padding:10px 18px;border-radius:999px;border:1px solid var(--brass-dim);
+  background:rgba(0,0,0,.55);color:var(--brass);font-size:12px;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+  box-shadow:0 3px 12px rgba(0,0,0,.45);transition:transform .08s,background .12s}
+.ptt.live{background:var(--crimson);color:#fff;border-color:var(--crimson);transform:scale(1.06);
+  box-shadow:0 0 0 6px rgba(217,72,78,.22)}
+.iconbtn.on{color:var(--brass);border-color:var(--brass-dim)}
+.seat .mic{position:absolute;bottom:5px;right:7px;font-size:9px;opacity:.5}
+.seat.talking{box-shadow:inset 0 0 0 1.5px var(--crimson)}
+.seat.talking .mic{opacity:1;animation:micPulse .9s ease-in-out infinite}
+@keyframes micPulse{0%,100%{opacity:1}50%{opacity:.35}}
 .handlabel{display:flex;justify-content:space-between;padding:0 14px 7px;font-size:11px;letter-spacing:.09em;
 text-transform:uppercase;color:var(--muted)}
 .hand{display:flex;gap:5px;overflow-x:auto;padding:2px 14px 8px;scrollbar-width:none;
@@ -817,6 +833,12 @@ function connect(then){
     linkState(true);
     const m=JSON.parse(e.data);
     if(m.t==='pong')return;
+    if(m.t==='ice'){ if(m.servers&&m.servers.length)iceCfg={iceServers:m.servers}; return; }
+    if(m.t==='rtc'){ onRtc(m.from,m.d); return; }
+    if(m.t==='talk'){
+      if(m.on)talkers.add(m.i); else talkers.delete(m.i);
+      paintTalkers(); return;
+    }
     if(m.t==='seated'){ seat=m.seat; myToken=m.token; myCode=m.code;
       store.set('bq_token',myToken); store.set('bq_code',myCode); }
     else if(m.t==='state'){
@@ -846,7 +868,7 @@ function connect(then){
       else { clockAt=null; clockSeat=null; }
       // an armed card that is no longer playable must not stay armed
       if(pickId!==null&&!(V.phase==='play'&&V.turn===V.you&&(V.legalIds||[]).includes(pickId)))pickId=null;
-      render(); updateChat();
+      render(); updateChat(); syncPeers();
     }
     else if(m.t==='err'){
       /* On load the app quietly tries to walk back into your last table. If that
@@ -865,9 +887,219 @@ function connect(then){
       toast(m.msg); if(screen==='home')render();
     }
   };
-  ws.onclose=()=>{ scheduleReconnect(1500); };
+  /* The peer connections were introduced through this socket and are addressed
+     by seat. A dropped socket can come back at a different seat, or to a table
+     that has moved on, so they go and are made again from whatever is true
+     after the reconnect. The microphone itself stays open, which keeps the
+     permission prompt out of the middle of the game. */
+  ws.onclose=()=>{ dropAllPeers(); talkers.clear(); scheduleReconnect(1500); };
 }
 function send(o){ if(ws&&ws.readyState===1)ws.send(JSON.stringify(o)); }
+
+/* ===================== TALKING TO EACH OTHER =====================
+   Hold the button, everyone hears you; let go and your microphone is off
+   again. The sound never goes near the server: each pair of phones opens its
+   own connection and the voice travels straight down it, which is why this
+   costs nothing to run no matter how many tables are going.
+
+   Six players means every phone holds five connections. That sounds like a
+   lot and is fine — speech is a very small amount of data, and a phone that
+   is already drawing a card table can carry five of them without noticing.
+
+   Push to talk rather than an open microphone, deliberately. Six live mics in
+   a card game is a room full of television, breathing and somebody's kitchen,
+   and it flattens the battery. The microphone is opened once, when you switch
+   voice on, and then simply muted between presses — asking for it again on
+   every press would put a permission prompt in the middle of the game. */
+let voiceOn=false, micStream=null, micTrack=null, pttDown=false, voiceErr=null;
+let iceCfg={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+const peers=new Map();     // seat -> { pc, audio, queue, state }
+const talkers=new Set();   // seats holding their button down right now
+
+function voiceSupported(){
+  return !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.RTCPeerConnection);
+}
+async function startVoice(){
+  if(voiceOn||!voiceSupported())return;
+  try{
+    /* Asked for inside the tap that turns voice on, which is the only moment a
+       phone will allow it. The three constraints are what stop six phones in
+       one room howling at each other. */
+    micStream=await navigator.mediaDevices.getUserMedia({audio:{
+      echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+  }catch(e){
+    voiceErr=(e&&e.name==='NotAllowedError')
+      ? 'Microphone blocked. Allow it in your browser settings for this site.'
+      : 'No microphone available on this device.';
+    toast(voiceErr); render(); return;
+  }
+  micTrack=micStream.getAudioTracks()[0];
+  if(micTrack)micTrack.enabled=false;   // silent until the button is held
+  voiceOn=true; voiceErr=null;
+  send({t:'voice',on:true});
+  syncPeers(); render();
+}
+function stopVoice(){
+  if(!voiceOn&&!peers.size&&!micStream)return;
+  voiceOn=false; pttDown=false;
+  send({t:'voice',on:false});
+  dropAllPeers();
+  if(micStream)micStream.getTracks().forEach(t=>t.stop());
+  micStream=null; micTrack=null;
+  render();
+}
+function dropPeer(i){
+  const p=peers.get(i); if(!p)return;
+  try{p.pc.close();}catch(e){}
+  if(p.audio){ try{p.audio.srcObject=null;}catch(e){} p.audio.remove(); }
+  peers.delete(i);
+}
+function dropAllPeers(){ [...peers.keys()].forEach(dropPeer); }
+
+function voiceBin(){
+  let b=document.getElementById('voicebin');
+  if(!b){ b=document.createElement('div'); b.id='voicebin';
+    b.style.cssText='position:absolute;width:0;height:0;overflow:hidden';
+    document.body.appendChild(b); }
+  return b;
+}
+/* Who should this phone be connected to: every other seat that has a person on
+   it, is here, and has voice switched on too. Run after every state message,
+   so somebody joining or leaving is picked up without anything special. */
+function syncPeers(){
+  if(!voiceOn||!V||seat===null){ dropAllPeers(); return; }
+  // a reconnected socket arrives at a table that has forgotten the mic is on
+  const mine=V.seats&&V.seats[seat];
+  if(mine&&!mine.voice)send({t:'voice',on:true});
+  const want=new Set();
+  (V.seats||[]).forEach((s,i)=>{
+    if(i!==seat&&s&&s.voice&&s.connected&&!s.bot)want.add(i);
+  });
+  [...peers.keys()].forEach(i=>{ if(!want.has(i))dropPeer(i); });
+  want.forEach(i=>{ if(!peers.has(i))makePeer(i,seat<i); });
+}
+/* Only the lower seat number offers. Both ends deciding to call at once is the
+   classic way to tie a pair of these in a knot, and a rule both sides can work
+   out from the seating chart costs nothing. */
+function makePeer(i,initiator){
+  let pc;
+  try{ pc=new RTCPeerConnection(iceCfg); }catch(e){ return null; }
+  const audio=document.createElement('audio');
+  audio.autoplay=true; audio.playsInline=true; audio.setAttribute('playsinline','');
+  voiceBin().appendChild(audio);
+  const p={pc,audio,queue:[],state:'connecting'};
+  peers.set(i,p);
+  if(micTrack&&micStream)try{ pc.addTrack(micTrack,micStream); }catch(e){}
+  pc.onicecandidate=e=>{ if(e.candidate)send({t:'rtc',to:i,d:{c:e.candidate}}); };
+  pc.ontrack=e=>{
+    audio.srcObject=e.streams&&e.streams[0]?e.streams[0]:new MediaStream([e.track]);
+    const go=audio.play(); if(go&&go.catch)go.catch(()=>{});
+  };
+  pc.onconnectionstatechange=()=>{
+    p.state=pc.connectionState;
+    /* A pair that cannot find a route is shown as failed rather than left as
+       silence, because without a relay to bounce off that is a real outcome on
+       mobile data and the players deserve to know which of them it is. */
+    if(pc.connectionState==='failed'){
+      setTimeout(()=>{ if(voiceOn&&peers.get(i)===p){ dropPeer(i); syncPeers(); } },2500);
+    }
+    paintVoice();
+  };
+  if(initiator){
+    pc.createOffer().then(o=>pc.setLocalDescription(o))
+      .then(()=>send({t:'rtc',to:i,d:{sdp:pc.localDescription}}))
+      .catch(()=>{});
+  }
+  return p;
+}
+async function onRtc(from,d){
+  if(!voiceOn||!d)return;
+  let p=peers.get(from);
+  if(!p)p=makePeer(from,false);
+  if(!p)return;
+  try{
+    if(d.sdp){
+      await p.pc.setRemoteDescription(d.sdp);
+      // candidates can outrun the description they belong to
+      for(const c of p.queue.splice(0)){ try{ await p.pc.addIceCandidate(c); }catch(e){} }
+      if(d.sdp.type==='offer'){
+        const a=await p.pc.createAnswer();
+        await p.pc.setLocalDescription(a);
+        send({t:'rtc',to:from,d:{sdp:p.pc.localDescription}});
+      }
+    }else if(d.c){
+      if(p.pc.remoteDescription&&p.pc.remoteDescription.type)await p.pc.addIceCandidate(d.c);
+      else p.queue.push(d.c);
+    }
+  }catch(e){}
+}
+function setPtt(on){
+  if(!voiceOn||!micTrack||pttDown===on)return;
+  pttDown=on; micTrack.enabled=on;
+  send({t:'talk',on});
+  const b=document.getElementById('ptt');
+  if(b)b.classList.toggle('live',on);
+  if(on)buzz(9);
+}
+/* One dot moving on one seat. Deliberately not a re-render: the button gets
+   pressed every few seconds and redrawing the whole table for it would make
+   the cards flicker. */
+function paintTalkers(){
+  const els=document.querySelectorAll('.seats .seat');
+  els.forEach((el,i)=>el.classList.toggle('talking',talkers.has(i)));
+}
+function paintVoice(){
+  const b=document.getElementById('vc');
+  if(b)b.classList.toggle('on',voiceOn);
+}
+/* Pointer events rather than touch or mouse, so one path covers a finger and a
+   trackpad. The release is listened for on the window as well as the button: a
+   thumb that slides off the edge while talking still has to close the
+   microphone, and on a phone that happens constantly. */
+let pttWired=false;
+function wirePtt(btn){
+  if(!btn)return;
+  btn.onpointerdown=e=>{ e.preventDefault(); setPtt(true); };
+  btn.onpointerup=e=>{ e.preventDefault(); setPtt(false); };
+  btn.oncontextmenu=e=>e.preventDefault();
+  if(pttWired)return;
+  pttWired=true;
+  ['pointerup','pointercancel','blur'].forEach(ev=>
+    window.addEventListener(ev,()=>{ if(pttDown)setPtt(false); }));
+  // a phone that goes to another app must not leave the microphone live
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden&&pttDown)setPtt(false); });
+  // and a keyboard is nice on a laptop, as long as you are not typing a message
+  window.addEventListener('keydown',e=>{
+    if(e.code!=='Space'||e.repeat||chatOpen)return;
+    const t=e.target&&e.target.tagName;
+    if(t==='INPUT'||t==='TEXTAREA')return;
+    e.preventDefault(); setPtt(true);
+  });
+  window.addEventListener('keyup',e=>{ if(e.code==='Space'&&pttDown)setPtt(false); });
+}
+function voiceDiag(){
+  const line=(a,b,col)=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.07)">
+    <span style="font-size:12.5px">${a}</span><span style="font-size:11px;white-space:nowrap${col?';color:'+col:''}">${b}</span></div>`;
+  const rows=[...peers.entries()].map(([i,p])=>{
+    const nm=(V&&V.seats&&V.seats[i])?V.seats[i].name:('seat '+i);
+    const st=p.state==='connected'?['connected','#3E9B6E']
+      :p.state==='failed'?['could not connect','#D9484E']
+      :[p.state||'connecting','#8B93A7'];
+    return line(esc(nm),st[0],st[1]);
+  }).join('');
+  const relay=(iceCfg.iceServers||[]).some(s=>String(s.urls).includes('turn'));
+  modal(`<h2>Voice</h2>
+    <p style="font-size:12.5px">your microphone &nbsp;<b>${voiceOn?'on':'off'}</b>
+    &nbsp;&middot;&nbsp; relay server &nbsp;<b>${relay?'configured':'none'}</b></p>
+    ${voiceErr?`<p style="font-size:12.5px;color:#D9484E">${esc(voiceErr)}</p>`:''}
+    ${rows?`<div style="margin-top:10px">${rows}</div>`
+      :'<p style="color:var(--muted);font-size:12.5px">Nobody else has voice switched on yet.</p>'}
+    <p style="color:var(--muted);font-size:12.5px;margin-top:14px">The sound goes
+    straight from phone to phone and never through the table's server, which is why
+    it costs nothing to run. Without a relay server configured, two phones that are
+    both on mobile data can sometimes fail to find each other. That shows above as
+    <i>could not connect</i>, and joining wifi usually fixes it.</p>`);
+}
 function toast(msg){
   const d=document.createElement('div'); d.className='toast'; d.textContent=msg;
   document.body.appendChild(d); setTimeout(()=>d.remove(),3200);
@@ -1017,7 +1249,8 @@ function renderGame(R){
     else if(team.has(i))tag='<div class="tag mate">partner</div>';
     else if(i===me&&V.secretMate)tag='<div class="tag mate">partner (hidden)</div>';
     const onTeam=team.has(i)||(i===me&&V.secretMate);
-    return `<div class="seat ${turn?'turn':''} ${i===me?'you':''} ${passed?'out':''} ${V.trump&&onTeam?'tside':''}">
+    return `<div class="seat ${turn?'turn':''} ${i===me?'you':''} ${passed?'out':''} ${V.trump&&onTeam?'tside':''} ${talkers.has(i)?'talking':''}">
+      ${s.voice?'<div class="mic" aria-label="voice on">&#127908;</div>':''}
       ${i===clockSeat?'<div class="clk" id="tclk"></div>':''}
       <div class="cnt">${V.phase==='bid'?'':s.cards}</div>
       <div class="nm">${s.connected?'':'<span class="dot off"></span>'}${esc(s.name)}</div>
@@ -1044,11 +1277,13 @@ function renderGame(R){
     <span class="spacer"></span><span class="chipline">${info}</span>
     <button class="iconbtn rel" id="ch">&#128172;${unread?`<span class="badge">${unread>9?'9+':unread}</span>`:''}</button>
     <button class="iconbtn" id="mu">${muted?'&#128263;':'&#128266;'}</button>
+    ${voiceSupported()?`<button class="iconbtn ${voiceOn?'on':''}" id="vc" aria-label="Voice">&#127908;</button>`:''}
     <button class="iconbtn hagga" id="hg">Hagga</button><button class="iconbtn" id="mo" aria-label="More">&#8943;</button></div>
     <div class="seats">${seats}</div>
     ${teamsBar()}
     <div class="table"><div class="trickarea" style="--tn:${V.n||6}">${trick}</div></div>
-    <div class="handwrap"><div class="handlabel"><span>Your hand</span>
+    <div class="handwrap">${voiceOn?'<button class="ptt" id="ptt">Hold to talk</button>':''}
+      <div class="handlabel"><span>Your hand</span>
       <span>${V.hand.length?V.hand.reduce((a,c)=>a+ptsOf(c),0)+' pts in hand':''}</span></div>
       <div class="handpan"><div class="hand">${hand}</div></div></div>
     <div class="panel" id="panel"></div>
@@ -1062,6 +1297,15 @@ function renderGame(R){
   mu.addEventListener('touchstart',()=>{ muT=setTimeout(()=>{muT=null;soundDiag();},650); },{passive:true});
   ['touchend','touchmove','touchcancel'].forEach(ev=>mu.addEventListener(ev,()=>{if(muT){clearTimeout(muT);muT=null;}},{passive:true}));
   mu.oncontextmenu=e=>{e.preventDefault();soundDiag();};
+  const vc=document.getElementById('vc');
+  if(vc){
+    vc.onclick=()=>{ ac(); voiceOn?stopVoice():startVoice(); };
+    let vcT=null;
+    vc.addEventListener('touchstart',()=>{ vcT=setTimeout(()=>{vcT=null;voiceDiag();},650); },{passive:true});
+    ['touchend','touchmove','touchcancel'].forEach(ev=>vc.addEventListener(ev,()=>{if(vcT){clearTimeout(vcT);vcT=null;}},{passive:true}));
+    vc.oncontextmenu=e=>{e.preventDefault();voiceDiag();};
+  }
+  wirePtt(document.getElementById('ptt'));
   wireHand(R.querySelector('.hand'));
   const hg=document.getElementById('hg');
   if(hg)hg.onclick=()=>{
