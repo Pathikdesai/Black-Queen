@@ -551,6 +551,95 @@ function unitTests() {
   eq('off trump the ten is still fed to a partner who has the trick won',
     offSuit, '10H');
 
+  /* A trick can only be taken off you by somebody who has not played yet. That
+     sounds too obvious to need saying and the safety rule used to miss it: it
+     asked whether any opponent was known to be out of the led suit, including
+     ones who had already thrown away. At a real table it cost a black queen —
+     the partner's ace could not be beaten and the single opponent still to come
+     was visibly out of trumps, but a player who had already acted was out of
+     the suit, so the queen stayed in hand for nothing. */
+  let id19 = 1800;
+  function atTrick(o) {
+    const R = table([[], [], [], [], [], []]);
+    R.players.forEach((p, n) => { p.hand = (o.hands[n] || []).slice(); });
+    R.phase = 'play'; R.trump = o.trump; R.bidder = o.bidder; R.bidAmount = 140;
+    R.called = o.called; R.calledDone = o.calledDone;
+    R.team = new Set(o.team); R.privateTeam = new Set(o.privateTeam || o.team);
+    R.trickNo = o.trickNo || 6;
+    R.trick = o.trick.map(t => ({ p: t.p, card: t.card }));
+    R.lead = R.trick.length ? R.trick[0].card.s : null;
+    R.leader = R.trick.length ? R.trick[0].p : o.me;
+    R.trick.forEach(t => { R.seen[t.card.r + t.card.s] = (R.seen[t.card.r + t.card.s] || 0) + 1; });
+    Object.entries(o.voids || {}).forEach(([j, ss]) => ss.forEach(s => R.voids[+j].add(s)));
+    const turn = (R.leader + R.trick.length) % 6;
+    if (turn !== o.me) { stop(R); return 'seated wrong: turn is ' + turn; }
+    G.botPlay(R, o.me);
+    const out = R.trick.length > o.trick.length ? R.trick[R.trick.length - 1].card : null;
+    stop(R);
+    return out ? out.r + out.s : 'nothing';
+  }
+
+  const staleVoid = atTrick({
+    trump: 'H', bidder: 4, called: [{ r: 'A', s: 'D' }, { r: 'K', s: 'D' }],
+    calledDone: [true, true], team: [0, 4, 5], me: 3,
+    hands: { 3: [C('Q','S',id19++), C('9','S',id19++), C('8','S',id19++)] },
+    // seat 0 discards a spade and shows out of clubs, but seat 0 has already
+    // played; seat 4 is the only one left to act and is out of trumps
+    trick: [{ p: 5, card: C('6','C',id19++) }, { p: 0, card: C('4','S',id19++) },
+            { p: 1, card: C('8','C',id19++) }, { p: 2, card: C('A','C',id19++) }],
+    voids: { 0: ['C'], 4: ['H'] }
+  });
+  eq('a void belonging to somebody who has already played does not hold the queen back',
+    staleVoid, 'QS');
+
+  const liveVoid = atTrick({
+    trump: 'H', bidder: 4, called: [{ r: 'A', s: 'D' }, { r: 'K', s: 'D' }],
+    calledDone: [true, true], team: [0, 4, 5], me: 3,
+    hands: { 3: [C('Q','S',id19++), C('9','S',id19++), C('8','S',id19++)] },
+    trick: [{ p: 5, card: C('6','C',id19++) }, { p: 0, card: C('4','S',id19++) },
+            { p: 1, card: C('8','C',id19++) }, { p: 2, card: C('A','C',id19++) }],
+    voids: { 0: ['C'], 4: ['C'] }        // now the one left to act can cut
+  });
+  ok('but one belonging to somebody still to act does', liveVoid !== 'QS', 'played ' + liveVoid);
+
+  /* Holding your own copy of a card you called is a convention, not a vow. The
+     bidder sat last with the called ace and the five of the suit, an opponent's
+     king in front, and threw the five — losing the trick and giving away five
+     points to protect a card whose whole job is to win tricks. */
+  const spendCall = atTrick({
+    trump: 'H', bidder: 0, called: [{ r: 'A', s: 'H' }, { r: 'K', s: 'D' }],
+    calledDone: [false, false], team: [0], me: 0,
+    hands: { 0: [C('A','H',id19++), C('5','H',id19++)] },
+    trick: [{ p: 1, card: C('K','H',id19++) }, { p: 2, card: C('7','H',id19++) },
+            { p: 3, card: C('8','H',id19++) }, { p: 4, card: C('9','H',id19++) },
+            { p: 5, card: C('6','H',id19++) }]
+  });
+  eq('the bidder spends his own called card rather than lose the trick with it',
+    spendCall, 'AH');
+
+  /* The other half of the same convention: an unrevealed partner does not beat
+     the bidder's king with the called ace, because two winners spent together
+     win one trick. That holds while the king is actually going to win. With the
+     other ace still unaccounted for and ten points on the trick, it is not. */
+  const coverKing = atTrick({
+    trump: 'S', bidder: 0, called: [{ r: 'A', s: 'H' }, { r: 'K', s: 'D' }],
+    calledDone: [false, false], team: [0], me: 3, trickNo: 3,
+    hands: { 3: [C('A','H',id19++), C('6','H',id19++), C('7','C',id19++)] },
+    trick: [{ p: 0, card: C('K','H',id19++) }, { p: 1, card: C('10','H',id19++) },
+            { p: 2, card: C('5','H',id19++) }]
+  });
+  eq('the called ace covers the bidder\'s king when the king is not safe and the trick is fat',
+    coverKing, 'AH');
+
+  const leaveKing = atTrick({
+    trump: 'S', bidder: 0, called: [{ r: 'A', s: 'H' }, { r: 'K', s: 'D' }],
+    calledDone: [false, false], team: [0], me: 3, trickNo: 3,
+    hands: { 3: [C('A','H',id19++), C('6','H',id19++), C('7','C',id19++)] },
+    trick: [{ p: 0, card: C('K','H',id19++) }, { p: 1, card: C('9','H',id19++) },
+            { p: 2, card: C('8','H',id19++) }]
+  });
+  eq('but an empty trick is not worth spending it on', leaveKing, '6H');
+
   /* The black queen has become the top spade left, so the cashing rule would
      happily lead her. Away from trump that is twenty points offered to anyone
      holding a trump and no spades, and it is cut about two thirds of the time.
