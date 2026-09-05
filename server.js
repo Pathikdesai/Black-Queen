@@ -384,6 +384,7 @@ const TUNE = {
   bidKing: 2, bidVoid: 3, bidPoints: 0.15, bidNoise: 10,
   // which suit to name as trump
   suitAce: 1, suitKing: 0.5, suitQueenBonus: 1.5, suitQueenNeeds: 5,
+  coverPot: 10,        // points on a trick before a called card may cover a partner
   suitDupNeeds: 5,     // cards in a suit before a second ace or king counts twice
   dupCallLen: 6,       // cards in a suit before calling the same card for both slots
   dupCallPenalty: 12,  // what that second call gives up: both copies may be one player
@@ -604,15 +605,38 @@ function knownMate(R, i, j) {
    `best` is the index within the trick of the card currently winning. */
 function oursAlready(R, i, best) {
   if (!knownMate(R, i, R.trick[best].p)) return false;
+  /* Only the players still to act can do anything about this trick. That
+     sounds obvious and the rule used to miss it: it asked whether *any*
+     opponent was known to be out of the led suit, including ones who had
+     already played, and a player who has played cannot cut anything. At a real
+     table that cost a black queen — the partner's ace could not be beaten and
+     the one opponent still to come was visibly out of trumps, but somebody who
+     had already thrown away earlier was out of the suit, so the queen stayed
+     in hand. */
   const after = R.n - R.trick.length - 1;
-  let strangers = 0;
-  for (let k = 1; k <= after; k++) if (!knownMate(R, i, (i + k) % R.n)) strangers++;
-  if (strangers === 0) return true;
+  const left = [];
+  for (let k = 1; k <= after; k++) {
+    const j = (i + k) % R.n;
+    if (!knownMate(R, i, j)) left.push(j);
+  }
+  if (!left.length) return true;
+  const out = (j, s) => !!(R.voids[j] && R.voids[j].has(s));
   const top = R.trick[best].card;
-  // a higher card of the suit that is actually winning may still be out there
-  if (topOut(R, i, top.s) > RV[top.r]) return false;
-  // or somebody behind is out of the led suit and holds a trump to cut with
-  if (top.s !== R.trump && trumpsOut(R, i) > 0 && opponentVoid(R, i, R.lead)) return false;
+  const beatable = topOut(R, i, top.s) > RV[top.r];
+
+  if (top.s === R.lead) {
+    // beaten by a better card of the led suit, but only by somebody who can
+    // still follow it
+    if (beatable && left.some(j => !out(j, R.lead))) return false;
+    // or cut, by somebody shown out of the led suit who is not also out of trumps
+    if (R.lead !== R.trump && trumpsOut(R, i) > 0 &&
+        left.some(j => out(j, R.lead) && !out(j, R.trump))) return false;
+  } else {
+    /* Somebody has already cut. Only a higher trump takes it now, and playing
+       one means being out of the led suit, so the only people who can are those
+       shown out of it and not out of trumps. */
+    if (beatable && left.some(j => out(j, R.lead) && !out(j, R.trump))) return false;
+  }
   return true;
 }
 
@@ -747,6 +771,25 @@ function openCall(R, card) {
   return !!R.called && R.called.some((cc, k) =>
     !R.calledDone[k] && cc && cc.r === card.r && cc.s === card.s);
 }
+/* Is holding the called card costing this trick? Only when an opponent is
+   taking it, the called card would take it back, and nothing else in the hand
+   would — and then only if the trick is worth the card: either there are points
+   on it already, or the cheapest thing left to throw carries some, or this is
+   the last seat and the trick is simply there to be had. */
+function callWorthSpending(R, i, playable, spare, pot, last) {
+  if (!R.trick.length) return false;
+  let best = 0;
+  for (let k = 1; k < R.trick.length; k++)
+    if (beats(R.trick[k].card, R.trick[best].card, R.trump, R.lead)) best = k;
+  if (knownMate(R, i, R.trick[best].p)) return false;
+  const top = R.trick[best].card;
+  const wins = c => beats(c, top, R.trump, R.lead);
+  if (spare.some(wins)) return false;
+  const call = playable.filter(c => !spare.includes(c));
+  if (!call.some(wins)) return false;
+  const throwIn = spare.slice().sort((a, b) => ptsOf(a) - ptsOf(b))[0];
+  return last || pot > 0 || (throwIn && ptsOf(throwIn) > 0);
+}
 function ownCallToHold(R, i, card) {
   if (i !== R.bidder) return false;
   return R.called.some((cc, k) => !R.calledDone[k] && cc.r === card.r && cc.s === card.s);
@@ -757,9 +800,19 @@ function botPlay(R, i) {
   const playable = legal(hand, R.lead);
   if (!playable.length) return;
   const spare = playable.filter(c => !ownCallToHold(R, i, c));
-  const opts = spare.length ? spare : playable;
   const pot = R.trick.reduce((a, t) => a + ptsOf(t.card), 0);
   const last = R.trick.length === R.n - 1;
+  /* Holding back your own copy of a card you called is a convention, not a vow.
+     It is there so the two top cards of a suit are not spent on one trick, and
+     it stops being worth anything the moment holding it hands the trick to the
+     other side. Reported from a table: the bidder sat last with the called ace
+     and the five of the suit, an opponent's king in front of him, and threw the
+     five — losing the trick and giving away five points to protect a card whose
+     whole purpose was to win tricks. So it goes down when it is the only card
+     that takes a trick the other side would otherwise have. */
+  const opts = (spare.length && spare.length !== playable.length
+                && callWorthSpending(R, i, playable, spare, pot, last))
+    ? playable : (spare.length ? spare : playable);
   const bySuit = s => hand.filter(c => c.s === s).length;
 
   if (R.trick.length === 0) {
@@ -952,7 +1005,13 @@ function botPlay(R, i) {
   let takeable = winners;
   if (mateHolds) {
     const notTheCall = winners.filter(c => !openCall(R, c));
-    if (notTheCall.length !== winners.length) takeable = notTheCall;
+    /* The exception. If his card is not actually safe, nothing else in this
+       hand can protect it, and there are real points sitting on the trick, then
+       the called card covers him after all. Keeping two winners for two tricks
+       is only worth anything if the first of them is a trick you keep, and a
+       king with the other ace still behind it is not that. */
+    const mustCover = !notTheCall.length && !friendly && pot >= T.coverPot;
+    if (notTheCall.length !== winners.length && !mustCover) takeable = notTheCall;
   }
   if (!friendly && takeable.length) {
     /* Spend a card on this trick when there is something in it, when I am last
