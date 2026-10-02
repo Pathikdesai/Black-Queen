@@ -10,7 +10,7 @@ const SUITS = ['S', 'H', 'D', 'C'];
 const RANKS = ['4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const RV = { '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13, A: 14 };
 const MINBID = 100, MAXBID = 200, STEP = 5, TOTALPTS = 200;
-const BOTNAMES = ['Namdeo', 'Veena', 'Santosh', 'Ankush', 'Binny', 'Mukesh'];
+const BOTNAMES = ['Potiya', 'Choksi', 'Hilau Chand', 'Popat', 'Kali Gali', 'Homer'];
 
 const ptsOf = c => (c.r === '5' || c.r === '10') ? 5 : c.r === 'A' ? 10 : (c.r === 'Q' && c.s === 'S') ? 20 : 0;
 
